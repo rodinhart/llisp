@@ -125,7 +125,7 @@ const toArray = (x) => {
   return r
 }
 
-let fnCnt = 0
+let fnCnt = 1
 const compile = (expr) =>
   ({
     Number: () => cl`i32.const ${expr}\n`,
@@ -139,9 +139,18 @@ const compile = (expr) =>
             .reverse()
             .reduce((r, arg) => cl`${r}${compile(arg)}call $cons\n`, cl``)
 
-          return cl`i32.const 0\n${compiledArgs}local.get $env\n${compile(
-            op
-          )}call_indirect (type $fntype)\n`
+          return cl`
+          i32.const 0 ;; build args list
+          ${compiledArgs}
+          ;; evaluate operator
+          ${compile(op)}
+          global.set $tmp
+          global.get $tmp ;; get env
+          call $cdr
+          global.get $tmp ;; get function index
+          call $car
+          call_indirect (type $fntype)
+          `
         },
 
         // (def x 10)
@@ -159,8 +168,7 @@ const compile = (expr) =>
 
         // (fn (x) (* x x))
         [Symbol.for("fn")]: () => {
-          fnCnt += 1
-
+          const fnIndex = fnCnt++
           const name = Math.random().toString(36).slice(2)
           const params = toArray(args[0])
 
@@ -181,26 +189,32 @@ const compile = (expr) =>
 
             ${compile(args[1])}
 
-            local.get $env
+            ;;local.get $env
             ${params.reduce(
               (r) => cl`${r}
-              call $decon
-              call $decon
+              ;;call $decon
+              ;;call $decon
               `,
               cl``
             )}
             ${params.reduce(
               (r) => cl`${r}
-              drop
-              drop
+              ;;drop
+              ;;drop
               `,
               cl``
             )}
-              drop
+              ;;drop
           )
-          (elem (i32.const ${fnCnt}) $${name})`
+          (elem (i32.const ${fnIndex}) $${name})
+          `
 
-          return cl`${func}i32.const ${fnCnt}\n`
+          return cl`
+          ${func}
+          local.get $env ;; capture env
+          i32.const ${fnIndex} 
+          call $cons
+          `
         },
       }
 
@@ -210,9 +224,11 @@ const compile = (expr) =>
     },
 
     Symbol: () =>
-      cl`i32.const ${Symbol.keyFor(expr).charCodeAt(
-        0
-      )}\nlocal.get $env\ncall $get\n`,
+      cl`
+      i32.const ${Symbol.keyFor(expr).charCodeAt(0)} ;; ${Symbol.keyFor(expr)}
+      local.get $env
+      call $get
+      `,
   }[expr?.constructor?.name](expr))
 
 ;(async () => {
@@ -263,7 +279,7 @@ const compile = (expr) =>
   const { main } = instance.exports
 
   console.log("result:", main())
-  console.log(mem)
+  // console.log(mem)
   let cnt = 0
   let cur = mem[0] / 4
   while (cur) {

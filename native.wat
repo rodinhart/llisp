@@ -4,6 +4,7 @@
   (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
   (global $free (mut i32) (i32.const 4))
+  (global $tmp (mut i32) (i32.const 0))
 
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))
   (table 32 funcref)
@@ -115,10 +116,12 @@
   (func (export "main") (result i32)
     (local $env i32)
 
-    i32.const 0
+    i32.const 0 ;; new env
+
+    i32.const 0 ;; empty env
     i32.const 0 ;; $+
     call $cons
-
+    call $cons
     i32.const 43 ;; +
     call $cons
 

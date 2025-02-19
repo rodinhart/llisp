@@ -1,4 +1,5 @@
-(def dub (fn (x) (+ x x)))
-(def inc (fn (x) (+ x 1)))
+(def adder (fn (d) (fn (x) (+ x d))))
 
-(inc (dub 3))
+(def inc (adder 3))
+
+(inc 8)
