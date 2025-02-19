@@ -6,11 +6,13 @@
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))
   (table 32 funcref)
 
+  ;; ( p -- car(p) )
   (func $car (param i32) (result i32)
     local.get 0
     i32.load
   )
 
+  ;; ( p -- cdr(p) )
   (func $cdr (param i32) (result i32)
     local.get 0
     i32.const 4
@@ -18,6 +20,7 @@
     i32.load
   )
 
+  ;; ( cdr car -- (car.cdr) ) allocates memory
   (func $cons (param $cdr i32) (param $car i32) (result i32)
     global.get $free
     i32.eqz
@@ -46,6 +49,7 @@
     global.set $free ;; store next free
   )
 
+  ;; ( p -- car(p) cdr(p) ) frees memory
   (func $decon (param $c i32) (result i32 i32)
     local.get $c
     call $car
@@ -66,6 +70,7 @@
     global.set $free
   )
 
+  ;; ( key map -- map[key] )
   (func $get (param $key i32) (param $map i32) (result i32)
     local.get $map
     i32.eqz
@@ -90,6 +95,7 @@
     end
   )
 
+  ;; ( a b -- a+b )
   (func $+ (param $args i32) (param $env i32) (result i32)
    local.get $args
    call $decon

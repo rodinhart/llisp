@@ -146,18 +146,36 @@ const compile = (expr) =>
 
         // (fn (x) (* x x))
         [Symbol.for("fn")]: () => {
-          const func = cg`(func $tmp (param $args i32) (param $env i32) (result i32)
-            i32.const 1000
+          const name = Math.random().toString(36).slice(2)
+          const params = toArray(args[0])
+
+          const func = cg`(func $${name} (param $args i32) (param $env i32) (result i32)
+            local.get $env
+            ${params.reduce(
+              (r, param) => cl`${r}
+              local.get $args ;; bind ${Symbol.keyFor(param)}
+              call $decon
+              local.set $args
+              call $cons
+              i32.const ${Symbol.keyFor(param).charCodeAt(0)}
+              call $cons
+              `,
+              cl``
+            )}
+            local.set $env
+
+            ${compile(args[1])}
+
+            local.get $env
+            call $decon
+            drop
+            call $decon
+            drop
+            drop
           )
-          (elem (i32.const 17) $tmp)`
+          (elem (i32.const 17) $${name})`
 
           return cl`${func}i32.const 17\n`
-
-          return cl`${cg`(func $tmp ${toArray(args[0])
-            .map((arg) => `(param $${Symbol.keyFor(arg)} i32) `)
-            .join("")}(result i32)
-        ${compile(args[1])}
-        )`}i32.const 11\n`
         },
       }
 
@@ -196,7 +214,7 @@ const compile = (expr) =>
     initial: 1,
   })
   const mem = new Uint32Array(heap.buffer)
-  const len = 1 + 2 * 5
+  const len = 1 + 2 * 6
   for (let i = 2; i < len; i += 2) {
     mem[i - 1] = 99
     mem[i] = i + 1 < len ? 4 * (i + 1) : 0
