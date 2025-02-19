@@ -1,6 +1,7 @@
 (module
   (memory (import "js" "heap") 0)
   (import "js" "oem" (func $oem))
+  (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
   (global $free (mut i32) (i32.const 4))
 
@@ -76,6 +77,8 @@
     local.get $map
     i32.eqz
     if (result i32)
+      local.get $key
+      call $unknownSymbol
       i32.const 0
     else
       local.get $map
@@ -103,9 +106,9 @@
    call $decon
    drop
    i32.add
- )
+  )
 
-  (elem (i32.const 7) $+)
+  (elem (i32.const 0) $+)
 
   ;; cg<-
 
@@ -113,7 +116,7 @@
     (local $env i32)
 
     i32.const 0
-    i32.const 7
+    i32.const 0 ;; $+
     call $cons
 
     i32.const 43 ;; +

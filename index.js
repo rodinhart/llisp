@@ -125,7 +125,7 @@ const toArray = (x) => {
   return r
 }
 
-const symbols = new Map()
+let fnCnt = 0
 const compile = (expr) =>
   ({
     Number: () => cl`i32.const ${expr}\n`,
@@ -144,8 +144,23 @@ const compile = (expr) =>
           )}call_indirect (type $fntype)\n`
         },
 
+        // (def x 10)
+        [Symbol.for("def")]: () => {
+          return cl`
+          local.get $env
+          ${compile(args[1])}
+          call $cons
+          i32.const ${Symbol.keyFor(args[0]).charCodeAt(0)}
+          call $cons
+          local.set $env
+          i32.const ${Symbol.keyFor(args[0]).charCodeAt(0)}
+          `
+        },
+
         // (fn (x) (* x x))
         [Symbol.for("fn")]: () => {
+          fnCnt += 1
+
           const name = Math.random().toString(36).slice(2)
           const params = toArray(args[0])
 
@@ -183,9 +198,9 @@ const compile = (expr) =>
             )}
               drop
           )
-          (elem (i32.const 17) $${name})`
+          (elem (i32.const ${fnCnt}) $${name})`
 
-          return cl`${func}i32.const 17\n`
+          return cl`${func}i32.const ${fnCnt}\n`
         },
       }
 
@@ -224,7 +239,7 @@ const compile = (expr) =>
     initial: 1,
   })
   const mem = new Uint32Array(heap.buffer)
-  const len = 1 + 2 * 6
+  const len = 1 + 2 * 32
   for (let i = 2; i < len; i += 2) {
     mem[i - 1] = 99
     mem[i] = i + 1 < len ? 4 * (i + 1) : 0
@@ -234,6 +249,9 @@ const compile = (expr) =>
       heap,
       oem: () => {
         throw new Error("Llisp out of memory")
+      },
+      unknownSymbol: (firstChar) => {
+        throw new Error(`Unknown symbol ${String.fromCharCode(firstChar)}`)
       },
       log: (s) => {
         console.log("log:", s)

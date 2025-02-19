@@ -1,0 +1,3 @@
+- closures
+- implement $free (to replace call $decon followed by drop)
+- refactor getting i32 from symbol
