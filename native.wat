@@ -1,6 +1,7 @@
 (module
   (memory (import "js" "heap") 0)
   (import "js" "oem" (func $oem))
+  (import "js" "log" (func $log (param $s i32) (result i32)))
   (global $free (mut i32) (i32.const 4))
 
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))

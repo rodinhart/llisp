@@ -167,11 +167,21 @@ const compile = (expr) =>
             ${compile(args[1])}
 
             local.get $env
-            call $decon
-            drop
-            call $decon
-            drop
-            drop
+            ${params.reduce(
+              (r) => cl`${r}
+              call $decon
+              call $decon
+              `,
+              cl``
+            )}
+            ${params.reduce(
+              (r) => cl`${r}
+              drop
+              drop
+              `,
+              cl``
+            )}
+              drop
           )
           (elem (i32.const 17) $${name})`
 
@@ -225,11 +235,16 @@ const compile = (expr) =>
       oem: () => {
         throw new Error("Llisp out of memory")
       },
+      log: (s) => {
+        console.log("log:", s)
+
+        return s
+      },
     },
   })
   const { main } = instance.exports
 
-  console.log(main())
+  console.log("result:", main())
   console.log(mem)
   let cnt = 0
   let cur = mem[0] / 4
@@ -238,5 +253,5 @@ const compile = (expr) =>
     cur = mem[cur + 1] / 4
   }
 
-  console.log("free: ", cnt)
+  console.log("free:", cnt)
 })()
