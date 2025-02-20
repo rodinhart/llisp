@@ -5,6 +5,7 @@
   (import "js" "log" (func $log (param $s i32) (result i32)))
   (global $free (mut i32) (i32.const 4))
   (global $tmp (mut i32) (i32.const 0))
+  (global $tmp2 (mut i32) (i32.const 0))
 
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))
   (table 32 funcref)
