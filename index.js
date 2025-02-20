@@ -125,6 +125,30 @@ const toArray = (x) => {
   return r
 }
 
+const listFreeVars = (expr, bound) =>
+  ({
+    Number: () => new Set(),
+    Symbol: () => (bound.has(expr) ? new Set() : new Set([expr])),
+    Array: () => {
+      const [op, ...args] = toArray(expr)
+
+      const dispatch = {
+        _: () =>
+          toArray(expr).reduce(
+            (r, x) => r.union(listFreeVars(x, bound)),
+            new Set()
+          ),
+
+        [Symbol.for("fn")]: () =>
+          listFreeVars(args[1], bound.union(new Set(args[0]))),
+      }
+
+      return (
+        typeof op === "symbol" ? dispatch[op] ?? dispatch._ : dispatch._
+      )()
+    },
+  }[expr?.constructor?.name ?? "Null"]())
+
 let fnCnt = 1
 const compile = (expr) =>
   ({
@@ -172,7 +196,9 @@ const compile = (expr) =>
           const name = Math.random().toString(36).slice(2)
           const params = toArray(args[0])
 
-          const func = cg`(func $${name} (param $args i32) (param $env i32) (result i32)
+          const func = cg`
+          (func $${name} (param $args i32) (param $env i32) (result i32)
+            ;; create new bindings
             local.get $env
             ${params.reduce(
               (r, param) => cl`${r}
@@ -187,31 +213,47 @@ const compile = (expr) =>
             )}
             local.set $env
 
+            ;; function body
             ${compile(args[1])}
 
-            ;;local.get $env
+            ;; destroy bindings
+            local.get $env
             ${params.reduce(
               (r) => cl`${r}
-              ;;call $decon
-              ;;call $decon
+              call $decon
+              call $decon
               `,
               cl``
             )}
             ${params.reduce(
               (r) => cl`${r}
-              ;;drop
-              ;;drop
+              drop
+              drop
               `,
               cl``
             )}
-              ;;drop
+              drop
           )
           (elem (i32.const ${fnIndex}) $${name})
           `
 
+          const freeVars = [...listFreeVars(args[1], new Set(params))]
+
           return cl`
           ${func}
-          local.get $env ;; capture env
+          ;; capture env
+          i32.const 0
+          ${freeVars.reduce(
+            (r, v) => cl`
+            ${r}
+            ${compile(v)}
+            call $cons
+            i32.const ${Symbol.keyFor(v).charCodeAt(0)}
+            call $cons
+            `,
+            cl``
+          )}
+
           i32.const ${fnIndex} 
           call $cons
           `
@@ -229,7 +271,7 @@ const compile = (expr) =>
       local.get $env
       call $get
       `,
-  }[expr?.constructor?.name](expr))
+  }[expr?.constructor?.name ?? "Null"](expr))
 
 ;(async () => {
   const text = await fetch("./main.clj").then((res) => res.text())
@@ -254,8 +296,9 @@ const compile = (expr) =>
   const heap = new WebAssembly.Memory({
     initial: 1,
   })
+  const heapSize = 32
   const mem = new Uint32Array(heap.buffer)
-  const len = 1 + 2 * 32
+  const len = 1 + 2 * heapSize
   for (let i = 2; i < len; i += 2) {
     mem[i - 1] = 99
     mem[i] = i + 1 < len ? 4 * (i + 1) : 0
@@ -287,5 +330,5 @@ const compile = (expr) =>
     cur = mem[cur + 1] / 4
   }
 
-  console.log("free:", cnt)
+  console.log("used:", heapSize - cnt, "free:", cnt)
 })()
