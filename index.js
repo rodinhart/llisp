@@ -139,6 +139,9 @@ const listFreeVars = (expr, bound) =>
             new Set()
           ),
 
+        [Symbol.for("if")]: () =>
+          args.reduce((r, x) => r.union(listFreeVars(x, bound)), new Set()),
+
         [Symbol.for("fn")]: () =>
           listFreeVars(args[1], bound.union(new Set(args[0]))),
       }
@@ -187,6 +190,21 @@ const compile = (expr) =>
           call $cons
           local.set $env
           i32.const ${Symbol.keyFor(args[0]).charCodeAt(0)}
+          `
+        },
+
+        // (if p c a)
+        [Symbol.for("if")]: () => {
+          const [p, c, a] = args
+
+          return cl`
+          ${compile(p)}
+          i32.eqz
+          if (result i32)
+            ${compile(a)}
+          else
+            ${compile(c)}
+          end
           `
         },
 
