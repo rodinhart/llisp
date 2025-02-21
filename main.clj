@@ -1,6 +1,6 @@
 (defn reverse (x y)
   (if x
-    ((fn ((a . b)) (reverse b (cons a y))) x)
+    (let ((a . b) x) (reverse b (cons a y)))
     y))
 
-(reverse (cons 2 (cons 3 (cons 5 ()))) ())
+(reverse (reverse (cons 2 (cons 3 (cons 5 (cons 7 (cons 11 ()))))) ()) ())

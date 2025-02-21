@@ -49,6 +49,15 @@ const read = (s) => {
     while (i < s.length && s.charCodeAt(i) <= 32) {
       i++
     }
+
+    if (s[i] === ";") {
+      i++
+      while (i < s.length && s[i] !== "\n") {
+        i++
+      }
+
+      ws()
+    }
   }
 
   const exp = () => {
@@ -150,6 +159,20 @@ const listFreeVars = (expr, bound) =>
               )
             )
           ),
+
+        [Symbol.for("let")]: () =>
+          listFreeVars(
+            args[1],
+            bound.union(
+              new Set(
+                listToArray(args[0])
+                  .filter((_, i) => i % 2 === 0)
+                  .flatMap((target) =>
+                    Array.isArray(target) ? target : [target]
+                  )
+              )
+            )
+          ),
       }
 
       return (
@@ -157,6 +180,63 @@ const listFreeVars = (expr, bound) =>
       )()
     },
   }[expr?.constructor?.name ?? "Null"]())
+
+const createBindings = (names, args) =>
+  cl`
+;; create new bindings
+local.get $env
+${names.reduce(
+  (r, name, i) => cl`
+  ${r}
+  ;; get value
+  ${args[i]}
+
+  ${
+    !Array.isArray(name)
+      ? cl`
+  call $cons ;; add value
+  i32.const ${symbolIndex(name)} ;; ${Symbol.keyFor(name)}
+  call $cons ;; add key
+  `
+      : cl`
+  call $decon
+  global.set $tmp ;; stash cdr
+  call $cons ;; add car
+  i32.const ${symbolIndex(name[0])} ;; ${Symbol.keyFor(name[0])}
+  call $cons ;; add key
+  global.get $tmp
+  call $cons ;; add cdr
+  i32.const ${symbolIndex(name[1])} ;; ${Symbol.keyFor(name[1])}
+  call $cons ;; add key
+  `
+  }
+  `,
+  cl``
+)}
+local.set $env
+`
+
+const destroyBindings = (names) => cl`
+;; destroy bindings
+local.get $env
+${names.reduce(
+  (r) => cl`
+  ${r}
+  call $decon
+  call $decon
+  `,
+  cl``
+)}
+local.set $env
+${names.reduce(
+  (r) => cl`
+  ${r}
+  drop
+  drop
+  `,
+  cl``
+)}
+`
 
 const symbolIndices = new Map()
 const symbolIndex = (s) => {
@@ -253,6 +333,29 @@ const compile = (expr) =>
           `
         },
 
+        // (let ((a . b) x) a + b)
+        [Symbol.for("let")]: () => {
+          const pairs = listToArray(args[0])
+          const targets = pairs.filter((_, i) => i % 2 === 0)
+          const values = pairs.filter((_, i) => i % 2 === 1)
+          const body = args[1]
+
+          return cl`
+          ${createBindings(
+            targets,
+            values.map((value) => compile(value))
+          )}
+
+          ${compile(body)}
+
+          ${destroyBindings(
+            targets.flatMap((target) =>
+              Array.isArray(target) ? target : [target]
+            )
+          )}
+          `
+        },
+
         // (if p c a)
         [Symbol.for("if")]: () => {
           const [p, c, a] = args
@@ -272,71 +375,27 @@ const compile = (expr) =>
         [Symbol.for("fn")]: () => {
           const fnIndex = fnCnt++
           const name = Math.random().toString(36).slice(2)
-          const names = listToArray(args[0]).flatMap((arg) =>
+          const flatNames = listToArray(args[0]).flatMap((arg) =>
             Array.isArray(arg) ? arg : [arg]
-          )
-
-          const params = listToArray(args[0]).reduce(
-            (r, arg) => cl`
-          ${r}
-          local.get $args ;; bind ${
-            !Array.isArray(arg)
-              ? Symbol.keyFor(arg)
-              : `(${Symbol.keyFor(arg[0])} . ${Symbol.keyFor(arg[1])})`
-          }
-          call $decon
-          local.set $args
-
-          ${
-            !Array.isArray(arg)
-              ? cl`
-            call $cons ;; add value
-            i32.const ${symbolIndex(arg)}
-            call $cons ;; add key
-            `
-              : cl`
-            call $decon
-            global.set $tmp ;; stash cdr
-            call $cons ;; add car
-            i32.const ${symbolIndex(arg[0])}
-            call $cons ;; add key
-            global.get $tmp
-            call $cons ;; add cdr
-            i32.const ${symbolIndex(arg[1])}
-            call $cons ;; add key
-            `
-          }
-          `,
-            cl``
           )
 
           const func = cg`
           (func $${name} (param $args i32) (param $env i32) (result i32)
-            ;; create new bindings
-            local.get $env
-            ${params}
-            local.set $env
+            ${createBindings(
+              listToArray(args[0]),
+              listToArray(args[0]).map(
+                () => cl`
+              local.get $args
+              call $decon
+              local.set $args
+              `
+              )
+            )}
 
             ;; function body
             ${compile(args[1])}
 
-            ;; destroy bindings
-            local.get $env
-            ${names.reduce(
-              (r) => cl`${r}
-              call $decon
-              call $decon
-              `,
-              cl``
-            )}
-            ${names.reduce(
-              (r) => cl`${r}
-              drop
-              drop
-              `,
-              cl``
-            )}
-              drop
+            ${destroyBindings(flatNames)}
           )
           (elem (i32.const ${fnIndex}) $${name})
           `
