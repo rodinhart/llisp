@@ -222,20 +222,12 @@ local.get $env
 ${names.reduce(
   (r) => cl`
   ${r}
-  call $decon
-  call $decon
+  call $destroy
+  call $destroy
   `,
   cl``
 )}
 local.set $env
-${names.reduce(
-  (r) => cl`
-  ${r}
-  drop
-  drop
-  `,
-  cl``
-)}
 `
 
 const symbolIndices = new Map()
@@ -318,12 +310,9 @@ const compile = (expr) =>
           global.get $tmp2 ;; ref to car
 
           local.get $env
-          call $decon ;; key
+          call $destroy ;; destroy key
           call $decon ;; val
           local.set $env
-          global.set $tmp
-          drop ;; drop key
-          global.get $tmp
 
           call $decon ;; ix and captured env
           global.set $tmp ;; store ix

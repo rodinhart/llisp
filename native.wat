@@ -55,11 +55,30 @@
 
   ;; ( p -- car(p) cdr(p) ) frees memory
   (func $decon (param $c i32) (result i32 i32)
-    local.get $c
+    local.get $c ;; return car and cdr
     call $car
     local.get $c
     call $cdr
 
+    local.get $c ;; point to free
+    i32.const 4
+    i32.add
+    global.get $free
+    i32.store
+
+    local.get $c ;; clear car of free
+    i32.const 98
+    i32.store
+
+    local.get $c ;; store new free
+    global.set $free
+  )
+
+  ;; ( p -- cdr(p) ) frees memory
+  (func $destroy (param $c i32) (result i32)
+    local.get $c ;; return cdr
+    call $cdr
+    
     local.get $c ;; point to free
     i32.const 4
     i32.add

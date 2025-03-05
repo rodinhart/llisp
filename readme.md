@@ -1,8 +1,8 @@
-- allow decons notation
 - implement $free (to replace call $decon followed by drop)
 - refactor getting i32 from symbol
 - make create bindings sequential by setting $env
 - ability to destroy closures
+- wat formatter!
 
 ## memory usage
 
