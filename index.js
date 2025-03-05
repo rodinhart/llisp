@@ -1,3 +1,4 @@
+// Compile for local inclusion.
 const cl = (strings, ...exprs) => {
   const r = {
     local: "",
@@ -20,6 +21,7 @@ const cl = (strings, ...exprs) => {
   return r
 }
 
+// Compile for global inclusion.
 const cg = (strings, ...exprs) => {
   const r = {
     local: "",
@@ -42,6 +44,7 @@ const cg = (strings, ...exprs) => {
   return r
 }
 
+// The reader.
 const read = (s) => {
   let i = 0
 
@@ -124,6 +127,7 @@ const read = (s) => {
   return exp()
 }
 
+// Linked list to array
 const listToArray = (x) => {
   const r = []
   while (x) {
@@ -134,6 +138,8 @@ const listToArray = (x) => {
   return r
 }
 
+// Return set of free variables in given expression.
+// The only way to create bound vars is using fn or let.
 const listFreeVars = (expr, bound) =>
   ({
     Number: () => new Set(),
@@ -181,6 +187,8 @@ const listFreeVars = (expr, bound) =>
     },
   }[expr?.constructor?.name ?? "Null"]())
 
+// Compile to create variable bindings.
+// Used by fn and let.
 const createBindings = (names, args) =>
   cl`
 ;; create new bindings
@@ -216,6 +224,8 @@ ${names.reduce(
 local.set $env
 `
 
+// Destroy bindings at the end of fn or let.
+// Note this destroys the binding, but not the bound value.
 const destroyBindings = (names) => cl`
 ;; destroy bindings
 local.get $env
@@ -230,7 +240,10 @@ ${names.reduce(
 local.set $env
 `
 
-const symbolIndices = new Map()
+const symbolIndices = new Map([
+  [Symbol.for("+"), 1],
+  [Symbol.for("cons"), 2],
+])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
     symbolIndices.set(s, symbolIndices.size + 1)
@@ -239,7 +252,8 @@ const symbolIndex = (s) => {
   return symbolIndices.get(s)
 }
 
-let fnCnt = 1
+// Main compiler.
+let fnCnt = 2
 const compile = (expr) =>
   ({
     Number: () => cl`i32.const ${expr}\n`,
@@ -247,6 +261,12 @@ const compile = (expr) =>
       const [op, ...args] = listToArray(expr)
 
       const dispatch = {
+        [Symbol.for("+")]: () => cl`
+        ${compile(args[1])}
+        ${compile(args[0])}
+        i32.add
+        `,
+
         [Symbol.for("cons")]: () => cl`
         ${compile(args[1])}
         ${compile(args[0])}
@@ -392,9 +412,11 @@ const compile = (expr) =>
           const freeVars = [
             ...listFreeVars(
               expr,
-              new Set([Symbol.for("cons"), Symbol.for("if")])
+              new Set([Symbol.for("if"), Symbol.for("+"), Symbol.for("cons")])
             ),
           ]
+
+          console.log(freeVars)
 
           return cl`
           ${func}
@@ -435,25 +457,30 @@ const compile = (expr) =>
   }[expr?.constructor?.name ?? "Null"](expr))
 
 ;(async () => {
+  // Read source file.
   const text = await fetch("./main.clj").then((res) => res.text())
   const source = read(`(${text})`)
 
+  // Compile lisp.
   const compiled = listToArray(source).reduce(
     (r, expr, i, arr) =>
       cl`${r}${compile(expr)}${i + 1 < arr.length ? "drop\n\n" : ""}`,
     cl``
   )
 
+  // Resolve wat template.
   const native = await fetch("./native.wat").then((res) => res.text())
   const wat = native
     .replace(/;; cl<-/, compiled.local)
     .replace(/;; cg<-/, compiled.global)
-  console.log(wat)
+  // console.log(wat)
 
+  // Load resulting wasm module.
   const wabt = await WabtModule()
   const module = wabt.parseWat("compiled.wat", wat)
   const bytes = module.toBinary({})
 
+  // Prepare heap.
   const heap = new WebAssembly.Memory({
     initial: 1,
   })
@@ -464,6 +491,8 @@ const compile = (expr) =>
     mem[i - 1] = 99
     mem[i] = i + 1 < len ? 4 * (i + 1) : 0
   }
+
+  // Instantiate wasm module.
   const { instance } = await WebAssembly.instantiate(bytes.buffer, {
     js: {
       heap,
@@ -486,9 +515,11 @@ const compile = (expr) =>
   })
   const { main } = instance.exports
 
+  // Call main function.
   let result = main()
   console.log("result:", result)
 
+  // Print result as list.
   if (true) {
     const lst = []
     while (result !== 0 && lst.length < 100) {
@@ -499,6 +530,7 @@ const compile = (expr) =>
     console.log("lst:", `(${lst.join(" ")})`)
   }
 
+  // Count free memory.
   // console.log(mem)
   let cnt = 0
   let cur = mem[0] / 4

@@ -52,6 +52,7 @@
 
     global.set $free ;; store next free
   )
+  (elem (i32.const 1) $cons)
 
   ;; ( p -- car(p) cdr(p) ) frees memory
   (func $decon (param $c i32) (result i32 i32)
@@ -128,7 +129,6 @@
    drop
    i32.add
   )
-
   (elem (i32.const 0) $+)
 
   ;; cg<-
@@ -138,12 +138,12 @@
 
     i32.const 0 ;; new env
 
-    i32.const 0 ;; empty env
-    i32.const 0 ;; $+
-    call $cons
-    call $cons
-    i32.const 43 ;; +
-    call $cons
+   ;; i32.const 0 ;; empty env
+   ;; i32.const 0 ;; $+
+   ;; call $cons
+   ;; call $cons
+   ;; i32.const 1 ;; +
+   ;; call $cons
 
     local.set $env
 
