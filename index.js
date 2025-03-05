@@ -416,8 +416,6 @@ const compile = (expr) =>
             ),
           ]
 
-          console.log(freeVars)
-
           return cl`
           ${func}
           ;; capture env
@@ -486,6 +484,7 @@ const compile = (expr) =>
   })
   const heapSize = 320
   const mem = new Uint32Array(heap.buffer)
+  mem[0] = 4 // free pointer
   const len = 1 + 2 * heapSize
   for (let i = 2; i < len; i += 2) {
     mem[i - 1] = 99
@@ -513,7 +512,7 @@ const compile = (expr) =>
       },
     },
   })
-  const { main } = instance.exports
+  const { destroy, main } = instance.exports
 
   // Call main function.
   let result = main()
@@ -524,7 +523,8 @@ const compile = (expr) =>
     const lst = []
     while (result !== 0 && lst.length < 100) {
       lst.push(mem[result / 4])
-      result = mem[result / 4 + 1]
+      result = destroy(result)
+      // result = mem[result / 4 + 1]
     }
 
     console.log("lst:", `(${lst.join(" ")})`)

@@ -3,7 +3,6 @@
   (import "js" "oem" (func $oem))
   (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
-  (global $free (mut i32) (i32.const 4))
   (global $tmp (mut i32) (i32.const 0))
   (global $tmp2 (mut i32) (i32.const 0))
 
@@ -26,31 +25,36 @@
 
   ;; ( cdr car -- (car.cdr) ) allocates memory
   (func $cons (param $cdr i32) (param $car i32) (result i32)
-    global.get $free
+    i32.const 0
+    i32.load
     i32.eqz
     if
       call $oem
     end
 
-    global.get $free ;; return new cons
+    i32.const 0 ;; return new cons
+    i32.load
 
-
-    global.get $free ;; push next free
+    i32.const 0 ;; push ref to free
+    i32.const 0 ;; push next free
+    i32.load
     i32.const 4
     i32.add
     i32.load
 
-    global.get $free ;; store car
+    i32.const 0 ;; store car
+    i32.load
     local.get $car
     i32.store
 
-    global.get $free ;; store cdr
+    i32.const 0 ;; store cdr
+    i32.load
     i32.const 4
     i32.add
     local.get $cdr
     i32.store
 
-    global.set $free ;; store next free
+    i32.store ;; store next free
   )
   (elem (i32.const 1) $cons)
 
@@ -64,34 +68,38 @@
     local.get $c ;; point to free
     i32.const 4
     i32.add
-    global.get $free
+    i32.const 0
+    i32.load
     i32.store
 
     local.get $c ;; clear car of free
     i32.const 98
     i32.store
 
-    local.get $c ;; store new free
-    global.set $free
+    i32.const 0 ;; store new free
+    local.get $c
+    i32.store
   )
 
   ;; ( p -- cdr(p) ) frees memory
-  (func $destroy (param $c i32) (result i32)
+  (func $destroy (export "destroy") (param $c i32) (result i32)
     local.get $c ;; return cdr
     call $cdr
     
     local.get $c ;; point to free
     i32.const 4
     i32.add
-    global.get $free
+    i32.const 0
+    i32.load
     i32.store
 
     local.get $c ;; clear car of free
     i32.const 98
     i32.store
 
-    local.get $c ;; store new free
-    global.set $free
+    i32.const 0 ;; store new free
+    local.get $c
+    i32.store
   )
 
   ;; ( key map -- map[key] )
@@ -149,8 +157,5 @@
 
     ;; cl<-
 
-    i32.const 0
-    global.get $free
-    i32.store
   )
 )
