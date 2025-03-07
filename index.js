@@ -1,3 +1,16 @@
+// JsonML to XML
+const jsonmlToXml = (n) => {
+  if (!Array.isArray(n)) {
+    return String(n)
+  }
+
+  const [tag, props, ...children] = n
+
+  return `<${tag}${Object.entries(props)
+    .map(([key, val]) => ` ${key}="${val}"`)
+    .join("")}>${children.map(jsonmlToXml).join("\n")}</${tag}>`
+}
+
 // Compile for local inclusion.
 const cl = (strings, ...exprs) => {
   const r = {
@@ -108,6 +121,24 @@ const read = (s) => {
       return r
     }
 
+    if (s[i] === "'") {
+      i++
+
+      return [Symbol.for("quote"), [exp(), null]]
+    }
+
+    if (s[i] === "~") {
+      i++
+
+      if (s[i] === "@") {
+        i++
+
+        return [Symbol.for("unquote-splice"), [exp(), null]]
+      }
+
+      return [Symbol.for("unquote"), [exp(), null]]
+    }
+
     {
       let r = ""
       while (
@@ -189,19 +220,7 @@ const listFreeVars = (expr, bound) =>
           return new Set([...vars, ...listFreeVars(args[1], newBound)])
         },
 
-        [Symbol.for("letP")]: () =>
-          listFreeVars(
-            args[1],
-            bound.union(
-              new Set(
-                listToArray(args[0])
-                  .filter((_, i) => i % 2 === 0)
-                  .flatMap((target) =>
-                    Array.isArray(target) ? target : [target]
-                  )
-              )
-            )
-          ),
+        [Symbol.for("quote")]: () => new Set(),
       }
 
       return (
@@ -278,6 +297,9 @@ const symbolIndices = new Map([
   [Symbol.for("cons"), 2],
   [Symbol.for("list"), 3],
   [Symbol.for("<"), 4],
+  [Symbol.for("car"), 5],
+  [Symbol.for("cdr"), 6],
+  [Symbol.for("*"), 7],
 ])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
@@ -286,6 +308,17 @@ const symbolIndex = (s) => {
 
   return symbolIndices.get(s)
 }
+
+const stringIndices = new Map()
+const stringIndex = (s) => {
+  if (!stringIndices.has(s)) {
+    stringIndices.set(s, stringIndices.size + 1)
+  }
+
+  return stringIndices.get(s)
+}
+
+const invert = (m) => new Map([...m].map(([k, v]) => [v, k]))
 
 // Main compiler.
 let fnCnt = 2
@@ -324,6 +357,22 @@ const compile = (expr) =>
         ${compile(args[0])}
         ${compile(args[1])}
         i32.lt_s
+        `,
+
+        [Symbol.for("car")]: () => cl`
+        ${compile(args[0])}
+        call $car
+        `,
+
+        [Symbol.for("cdr")]: () => cl`
+        ${compile(args[0])}
+        call $cdr
+        `,
+
+        [Symbol.for("*")]: () => cl`
+        ${compile(args[0])}
+        ${compile(args[1])}
+        i32.mul
         `,
 
         // (f x y)
@@ -472,6 +521,9 @@ const compile = (expr) =>
                 Symbol.for("cons"),
                 Symbol.for("list"),
                 Symbol.for("<"),
+                Symbol.for("car"),
+                Symbol.for("cdr"),
+                Symbol.for("*"),
               ])
             ),
           ]
@@ -495,6 +547,47 @@ const compile = (expr) =>
           call $cons
           `
         },
+
+        [Symbol.for("quote")]: () => {
+          const arg = args[0]
+          const dispatch = {
+            Number: () => compile(arg),
+
+            Symbol: () => cl`
+            i32.const ${symbolIndex(arg)} ;; ${Symbol.keyFor(arg)}
+            `,
+
+            Array: () =>
+              arg[0] === Symbol.for("unquote")
+                ? compile(arg[1][0])
+                : cl`
+            i32.const 0
+            ${[...listToArray(arg)].reverse().reduce(
+              (r, x) => cl`
+              ${r}
+              ${
+                Array.isArray(x) && x[0] === Symbol.for("unquote-splice")
+                  ? cl`
+                drop
+                ${compile(x[1][0])}
+                `
+                  : cl`
+                ${compile([Symbol.for("quote"), [x, null]])}
+                call $cons
+                  `
+              }
+              `,
+              cl``
+            )}
+            `,
+
+            Null: () => compile(arg),
+
+            String: () => compile(arg),
+          }
+
+          return dispatch[arg?.constructor?.name ?? "Null"]()
+        },
       }
 
       return (
@@ -512,12 +605,18 @@ const compile = (expr) =>
     Null: () => cl`
       i32.const 0
       `,
+
+    String: () => cl`
+      i32.const ${stringIndex(expr)} ;; ${expr}
+      `,
   }[expr?.constructor?.name ?? "Null"](expr))
 
 ;(async () => {
   // Read source file.
   const text = await fetch("./main.clj").then((res) => res.text())
-  const source = read(`(${text})`)
+  const source = read(`(
+    ${text}
+    )`)
 
   // Compile lisp.
   const compiled = listToArray(source).reduce(
@@ -579,15 +678,81 @@ const compile = (expr) =>
   console.log("result:", result)
 
   // Print result as list.
-  if (true) {
+  if (false) {
     const lst = []
     while (result !== 0 && lst.length < 100) {
       lst.push(mem[result / 4])
       result = destroy(result)
-      // result = mem[result / 4 + 1]
     }
 
     console.log("lst:", `(${lst.join(" ")})`)
+  } else if (true) {
+    let ptr = result
+    const _ = () => {
+      const deconString = () => {
+        const r = invert(stringIndices).get(mem[ptr / 4])
+        ptr = destroy(ptr)
+
+        return r
+      }
+
+      const deconInt = () => {
+        const r = mem[ptr / 4]
+        ptr = destroy(ptr)
+
+        return r
+      }
+
+      const deconProps = () => {
+        const tmp = deconInt()
+        const prev = ptr
+        ptr = tmp
+        const props = {}
+        while (ptr) {
+          const key = deconString()
+          props[key] = ["x", "y"].includes(key) ? deconInt() : deconString()
+        }
+
+        ptr = prev
+
+        return props
+      }
+
+      if (ptr === 0) {
+        return null
+      }
+
+      const tag = deconString()
+      switch (tag) {
+        case "text":
+          return [tag, deconProps(), deconString()]
+
+        case "g": {
+          const props = deconProps()
+          const children = []
+          while (ptr) {
+            const tmp = deconInt()
+            const prev = ptr
+            ptr = tmp
+            children.push(_())
+            ptr = prev
+          }
+
+          return ["g", props, ...children]
+        }
+
+        default:
+          throw new Error(`Unknown tag '${tag}'`)
+      }
+    }
+
+    const svg = jsonmlToXml([
+      "svg",
+      { xmlns: "http://www.w3.org/2000/svg", width: 500, height: 300 },
+      _(),
+    ])
+    console.log(svg)
+    document.body.innerHTML = svg
   }
 
   // Count free memory.
