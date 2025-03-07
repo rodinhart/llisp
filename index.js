@@ -277,6 +277,7 @@ const symbolIndices = new Map([
   [Symbol.for("+"), 1],
   [Symbol.for("cons"), 2],
   [Symbol.for("list"), 3],
+  [Symbol.for("<"), 4],
 ])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
@@ -296,8 +297,8 @@ const compile = (expr) =>
 
       const dispatch = {
         [Symbol.for("+")]: () => cl`
-        ${compile(args[1])}
         ${compile(args[0])}
+        ${compile(args[1])}
         i32.add
         `,
 
@@ -317,6 +318,12 @@ const compile = (expr) =>
           `,
           cl``
         )}
+        `,
+
+        [Symbol.for("<")]: () => cl`
+        ${compile(args[0])}
+        ${compile(args[1])}
+        i32.lt_s
         `,
 
         // (f x y)
@@ -464,6 +471,7 @@ const compile = (expr) =>
                 Symbol.for("+"),
                 Symbol.for("cons"),
                 Symbol.for("list"),
+                Symbol.for("<"),
               ])
             ),
           ]
