@@ -1,4 +1,3 @@
-- make create bindings sequential by setting $env
 - properly bind free vars like + and cons
 - ability to destroy closures
 - wat formatter!

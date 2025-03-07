@@ -138,6 +138,16 @@ const listToArray = (x) => {
   return r
 }
 
+// [a, b, c, d] -> [[a, b], [c, d]]
+const pairUp = (xs) =>
+  xs.reduce((r, x, i) => {
+    if (i % 2 === 1) {
+      r.push([xs[i - 1], x])
+    }
+
+    return r
+  }, [])
+
 // Return set of free variables in given expression.
 // The only way to create bound vars is using fn or let.
 const listFreeVars = (expr, bound) =>
@@ -166,7 +176,20 @@ const listFreeVars = (expr, bound) =>
             )
           ),
 
-        [Symbol.for("let")]: () =>
+        // (let ((a . b) c) (cons b a))
+        [Symbol.for("let")]: () => {
+          const [vars, newBound] = pairUp(listToArray(args[0])).reduce(
+            ([vars, bound], [name, expr]) => [
+              new Set([...vars, ...listFreeVars(expr, bound)]),
+              bound.union(new Set(Array.isArray(name) ? name : [name])),
+            ],
+            [[], bound]
+          )
+
+          return new Set([...vars, ...listFreeVars(args[1], newBound)])
+        },
+
+        [Symbol.for("letP")]: () =>
           listFreeVars(
             args[1],
             bound.union(
@@ -185,11 +208,13 @@ const listFreeVars = (expr, bound) =>
         typeof op === "symbol" ? dispatch[op] ?? dispatch._ : dispatch._
       )()
     },
+
+    Null: () => new Set(),
   }[expr?.constructor?.name ?? "Null"]())
 
 // Compile to create variable bindings.
 // Used by fn and let.
-const createBindings = (names, args) =>
+const createBindings = (names, args, sequential) =>
   cl`
 ;; create new bindings
 local.get $env
@@ -218,6 +243,14 @@ ${names.reduce(
   call $cons ;; add key
   `
   }
+  ${
+    sequential
+      ? cl`
+  local.set $env
+  local.get $env
+  `
+      : cl``
+  }
   `,
   cl``
 )}
@@ -243,6 +276,7 @@ local.set $env
 const symbolIndices = new Map([
   [Symbol.for("+"), 1],
   [Symbol.for("cons"), 2],
+  [Symbol.for("list"), 3],
 ])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
@@ -271,6 +305,18 @@ const compile = (expr) =>
         ${compile(args[1])}
         ${compile(args[0])}
         call $cons
+        `,
+
+        [Symbol.for("list")]: () => cl`
+        i32.const 0
+        ${[...args].reverse().reduce(
+          (r, arg) => cl`
+          ${r}
+          ${compile(arg)}
+          call $cons
+          `,
+          cl``
+        )}
         `,
 
         // (f x y)
@@ -352,7 +398,8 @@ const compile = (expr) =>
           return cl`
           ${createBindings(
             targets,
-            values.map((value) => compile(value))
+            values.map((value) => compile(value)),
+            true
           )}
 
           ${compile(body)}
@@ -412,7 +459,12 @@ const compile = (expr) =>
           const freeVars = [
             ...listFreeVars(
               expr,
-              new Set([Symbol.for("if"), Symbol.for("+"), Symbol.for("cons")])
+              new Set([
+                Symbol.for("if"),
+                Symbol.for("+"),
+                Symbol.for("cons"),
+                Symbol.for("list"),
+              ])
             ),
           ]
 
