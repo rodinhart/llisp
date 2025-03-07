@@ -86,25 +86,17 @@
     (cons (car xs) (copy (cdr xs)))
     ()))
 
-; 2 + 3 + 2 + 2 + 2 = 11 (69)
+; 2 + 5 * (1 + 2) = 17 (75)
 (def data '(
   ("Alice" 3)
   ("Bob" 1)
   ("Charles" 2)
+  ("Doris" 3)
+  ("Ellis" 1)
 ))
 
-;; (let (
-;;   f (fn (x) (+ x x))
-;;   r (map f (list 1 2 3 4))
-;;   (a . b) f)
-  
-;;   r)
-
-;; '("g" () ~@(map (fn ((row . i))
-;;   '("text" ("y" ~(* 16 (+ i 1))) ~(car row))) (zip data (range 0 (count data)))))
-
 (let (
-  f2 (fn (a b) (< (car (cdr b)) (car (cdr a))))
+  f2 (fn (a b) (<= (car (cdr b)) (car (cdr a))))
   z (with-index (sort f2 (copy data)))
   f (fn ((row . i)) '("text" ("y" ~(* 16 (+ i 1))) ~(car row)))
   res (map f z)

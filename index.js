@@ -300,6 +300,7 @@ const symbolIndices = new Map([
   [Symbol.for("car"), 5],
   [Symbol.for("cdr"), 6],
   [Symbol.for("*"), 7],
+  [Symbol.for("<="), 8],
 ])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
@@ -373,6 +374,12 @@ const compile = (expr) =>
         ${compile(args[0])}
         ${compile(args[1])}
         i32.mul
+        `,
+
+        [Symbol.for("<=")]: () => cl`
+        ${compile(args[0])}
+        ${compile(args[1])}
+        i32.le_s
         `,
 
         // (f x y)
@@ -524,6 +531,7 @@ const compile = (expr) =>
                 Symbol.for("car"),
                 Symbol.for("cdr"),
                 Symbol.for("*"),
+                Symbol.for("<="),
               ])
             ),
           ]
@@ -650,13 +658,29 @@ const compile = (expr) =>
     mem[i] = i + 1 < len ? 4 * (i + 1) : 0
   }
 
+  const count = (ptr) => {
+    let cnt = 0
+    let cur = ptr
+    while (cur) {
+      cnt++
+      cur = mem[cur / 4 + 1]
+    }
+
+    return cnt
+  }
+
   // Instantiate wasm module.
+  const frees = []
+  let timer
+  const W = 1000
   const { instance } = await WebAssembly.instantiate(bytes.buffer, {
     js: {
       heap,
+
       oem: () => {
         throw new Error("Llisp out of memory")
       },
+
       unknownSymbol: (index) => {
         throw new Error(
           `Unknown symbol ${Symbol.keyFor(
@@ -664,10 +688,45 @@ const compile = (expr) =>
           )}`
         )
       },
+
       log: (s) => {
         console.log("log:", s)
 
         return s
+      },
+
+      monitor: () => {
+        frees.push(count(mem[0]))
+        if (timer === undefined) {
+          timer = setTimeout(() => {
+            document.getElementById("monitor").innerHTML = jsonmlToXml([
+              "svg",
+              { xmlns: "http://www.w3.org/2000/svg", width: W, height: 100 },
+              [
+                "rect",
+                {
+                  x: 0,
+                  y: 0,
+                  width: W,
+                  height: 100,
+                  fill: "#dddddd",
+                },
+              ],
+              ...frees.slice(-W).map((cnt, x) => [
+                "line",
+                {
+                  x1: x,
+                  x2: x,
+                  y1: 100,
+                  y2: 100 * (1 - cnt / heapSize),
+                  stroke: "green",
+                },
+              ]),
+            ])
+
+            timer = undefined
+          }, 100)
+        }
       },
     },
   })
@@ -752,17 +811,10 @@ const compile = (expr) =>
       _(),
     ])
     console.log(svg)
-    document.body.innerHTML = svg
+    document.getElementById("app").innerHTML = svg
   }
 
-  // Count free memory.
   // console.log(mem)
-  let cnt = 0
-  let cur = mem[0] / 4
-  while (cur) {
-    cnt++
-    cur = mem[cur + 1] / 4
-  }
-
+  const cnt = count(mem[0])
   console.log("used:", heapSize - cnt, "free:", cnt)
 })()

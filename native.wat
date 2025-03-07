@@ -3,6 +3,7 @@
   (import "js" "oem" (func $oem))
   (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
+  (import "js" "monitor" (func $monitor))
   (global $tmp (mut i32) (i32.const 0))
   (global $tmp2 (mut i32) (i32.const 0))
 
@@ -55,6 +56,7 @@
     i32.store
 
     i32.store ;; store next free
+    call $monitor
   )
   (elem (i32.const 1) $cons)
 
@@ -79,6 +81,7 @@
     i32.const 0 ;; store new free
     local.get $c
     i32.store
+    call $monitor
   )
 
   ;; ( p -- cdr(p) ) frees memory
@@ -100,6 +103,7 @@
     i32.const 0 ;; store new free
     local.get $c
     i32.store
+    call $monitor
   )
 
   ;; ( key map -- map[key] )
