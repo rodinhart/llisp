@@ -220,7 +220,41 @@ const listFreeVars = (expr, bound) =>
           return new Set([...vars, ...listFreeVars(args[1], newBound)])
         },
 
-        [Symbol.for("quote")]: () => new Set(),
+        [Symbol.for("quote")]: () => {
+          const arg = args[0]
+          const dispatch = {
+            Array: () =>
+              arg[0] === Symbol.for("unquote")
+                ? listFreeVars(arg[1][0], bound)
+                : listToArray(arg).reduce(
+                    (r, expr) =>
+                      new Set([
+                        ...r,
+                        ...(Array.isArray(expr) &&
+                        expr[0] === Symbol.for("unquote-splice")
+                          ? listFreeVars(expr[1][0], bound)
+                          : listFreeVars(
+                              [Symbol.for("quote"), [expr, null]],
+                              bound
+                            )),
+                      ]),
+                    new Set()
+                  ),
+
+            String: () => new Set(),
+
+            Null: () => new Set(),
+
+            Symbol: () => new Set(),
+          }
+
+          const t = arg?.constructor?.name ?? "Null"
+          if (!dispatch[t]) {
+            throw new Error(`Unknown quote dispatch on '${t}'`)
+          }
+
+          return dispatch[t]()
+        },
       }
 
       return (
@@ -229,6 +263,8 @@ const listFreeVars = (expr, bound) =>
     },
 
     Null: () => new Set(),
+
+    String: () => new Set(),
   }[expr?.constructor?.name ?? "Null"]())
 
 // Compile to create variable bindings.
@@ -301,6 +337,7 @@ const symbolIndices = new Map([
   [Symbol.for("cdr"), 6],
   [Symbol.for("*"), 7],
   [Symbol.for("<="), 8],
+  [Symbol.for("="), 9],
 ])
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
@@ -380,6 +417,12 @@ const compile = (expr) =>
         ${compile(args[0])}
         ${compile(args[1])}
         i32.le_s
+        `,
+
+        [Symbol.for("=")]: () => cl`
+        ${compile(args[0])}
+        ${compile(args[1])}
+        i32.eq
         `,
 
         // (f x y)
@@ -532,6 +575,7 @@ const compile = (expr) =>
                 Symbol.for("cdr"),
                 Symbol.for("*"),
                 Symbol.for("<="),
+                Symbol.for("="),
               ])
             ),
           ]
@@ -672,7 +716,7 @@ const compile = (expr) =>
   // Instantiate wasm module.
   const frees = []
   let timer
-  const W = 1000
+  const W = 1500
   const { instance } = await WebAssembly.instantiate(bytes.buffer, {
     js: {
       heap,
@@ -699,6 +743,17 @@ const compile = (expr) =>
         frees.push(count(mem[0]))
         if (timer === undefined) {
           timer = setTimeout(() => {
+            let points = frees
+            while (points.length > W) {
+              points = points.reduce((r, x, i) => {
+                if (i % 2 === 1) {
+                  r.push((points[i - 1] + x) / 2)
+                }
+
+                return r
+              }, [])
+            }
+
             document.getElementById("monitor").innerHTML = jsonmlToXml([
               "svg",
               { xmlns: "http://www.w3.org/2000/svg", width: W, height: 100 },
@@ -712,7 +767,7 @@ const compile = (expr) =>
                   fill: "#dddddd",
                 },
               ],
-              ...frees.slice(-W).map((cnt, x) => [
+              ...points.slice(-W).map((cnt, x) => [
                 "line",
                 {
                   x1: x,
@@ -723,6 +778,12 @@ const compile = (expr) =>
                 },
               ]),
             ])
+
+            console.log(
+              "max used: ",
+              heapSize -
+                frees.reduce((r, x) => (r === null || x < r ? x : r), null)
+            )
 
             timer = undefined
           }, 100)
