@@ -1,3 +1,6 @@
+- conservation of ref
+  - conform: cons
+  - violate: car, cdr, $get, (look for more)
 - properly bind free vars like + and cons
 - ability to destroy closures
 - wat formatter!

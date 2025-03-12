@@ -4,6 +4,8 @@
   (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
   (import "js" "monitor" (func $monitor))
+  (import "js" "err" (func $err (param $errno i32)))
+  (import "js" "prn" (func $prn (param $ptr i32)))
   (global $tmp (mut i32) (i32.const 0))
   (global $tmp2 (mut i32) (i32.const 0))
 
@@ -62,6 +64,13 @@
 
   ;; ( p -- car(p) cdr(p) ) frees memory
   (func $decon (param $c i32) (result i32 i32)
+    local.get $c
+    i32.eqz
+    if
+      i32.const 1
+      call $err
+    end
+
     local.get $c ;; return car and cdr
     call $car
     local.get $c
@@ -84,7 +93,7 @@
     call $monitor
   )
 
-  ;; ( p -- cdr(p) ) frees memory
+  ;; ( c -- cdr(c) ) frees memory
   (func $destroy (export "destroy") (param $c i32) (result i32)
     local.get $c ;; return cdr
     call $cdr
@@ -104,6 +113,16 @@
     local.get $c
     i32.store
     call $monitor
+  )
+
+  ;; ( c -- c c )
+  (func $copy (param $c i32) (result i32 i32)
+    local.get $c
+    call $cdr
+    local.get $c
+    call $car
+    call $cons
+    local.get $c
   )
 
   ;; ( key map -- map[key] )
@@ -133,6 +152,47 @@
     end
   )
 
+  ;; ( key map -- map[key] map ) throws error if not found
+  (func $remove (param $key i32) (param $map i32) (result i32 i32)
+    (local $k i32)
+    (local $v i32)
+
+    local.get $map
+    i32.eqz
+    if
+      local.get $key
+      call $unknownSymbol
+    end
+
+    local.get $map ;; get key and val
+    call $decon
+    local.tee $map
+    i32.eqz
+    if
+      i32.const 3
+      call $err
+    end
+    local.get $map
+    call $decon
+    local.set $map
+    local.set $v
+    local.tee $k
+    local.get $key
+    i32.eq
+    if (result i32 i32)
+      local.get $v ;; return val and new map
+      local.get $map
+    else
+      local.get $key ;; recurse
+      local.get $map
+      call $remove
+      local.get $v ;; add back key and val
+      call $cons
+      local.get $k
+      call $cons
+    end
+  )
+
   ;; ( a b -- a+b )
   (func $+ (param $args i32) (param $env i32) (result i32)
    local.get $args
@@ -149,14 +209,6 @@
     (local $env i32)
 
     i32.const 0 ;; new env
-
-   ;; i32.const 0 ;; empty env
-   ;; i32.const 0 ;; $+
-   ;; call $cons
-   ;; call $cons
-   ;; i32.const 1 ;; +
-   ;; call $cons
-
     local.set $env
 
     ;; cl<-

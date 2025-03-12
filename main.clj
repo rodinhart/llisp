@@ -1,113 +1,137 @@
-; 3 + 2 * 1 = 5
-(defn reverse (x y)
-  (if x
-    (let ((a . b) x) (reverse b (cons a y)))
-    y))
+(defn reverse (xs ys)
+  (if xs
+    (let ((x . rx) xs)
+      (reverse rx (cons x ys)))
+    (do xs ys)))
 
-; 3 + 2 * 1 = 5 (10)
 (defn split (xs)
   (if xs
-    (let ((x . ys) xs)
-      (if ys
+    (let ((x . rx) xs)
+      (if rx
         (let (
-          (y . zs) ys
-          (l . rs) (split zs)
-          (r . rrs) rs)
+          (y . ry) rx
+          (l . r) (split ry))
           
-          (list (cons x l) (cons y r)))
-        (list (list x) ())))
-    (list () ())))
+          (cons (cons x l) (cons y r)))
+        (cons (cons x rx) ())))
+    (cons xs ())))
 
-; 3 + 2 * 1 = 5 (15)
 (defn merge (f xs ys)
   (if xs
     (if ys
       (let (
-        (x . xxs) xs
-        (y . yys) ys)
+        (x . rx) xs
+        (y . ry) ys)
+        
         (if (f x y)
-          (cons x (merge f xxs (cons y yys)))
-          (cons y (merge f (cons x xxs) yys))))
-      xs)
-    ys))
+          (cons x (merge f rx (cons y ry)))
+          (cons y (merge f (cons x rx) ry))))
+      (let ((a . b) f) (do a b ys xs))) ; should destroy unused automatically
+    (let ((a . b) f) (do a b xs ys)))) ; should destroy unused automatically
 
-; 3 + 2 * 3 = 9 (24)
 (defn sort (f xs)
   (if xs
-    (let ((x . ys) xs)
-      (if ys
+    (let ((x . rx) xs)
+      (if rx
         (let (
-          (l . r) (split (cons x ys))
-          (r . s) r)
+          (l . r) (split (cons x rx))
+          (f . f2) (copy f)
+          (f . f3) (copy f))
           
-          (merge f (sort f l) (sort f r)))
-        (cons x ())))
-    ()))
+          (merge f (sort f2 l) (sort f3 r)))
+        (let ((a . b) f) (do a b (cons x rx)))))
+    (let ((a . b) f) (do a b xs))))
 
-; 3 + 2 * 1 = 5 (29)
 (defn map (f xs)
   (if xs
-    (let ((x . ys) xs)
-      (cons (f x) (map f ys)))
-    ()))
+    (let (
+      (x . rx) xs
+      y (f x)) ; because args is evaluated back-to-front
 
-; 3 + 2 * 1 = 5 (34)
+      (cons y (map f rx)))
+    (let ((a . b) f) (do a b xs))))
+
+
 (defn range (a b)
   (if (< a b)
-    (cons a (range (+ a 1) b))
-    ()))
+    (let (
+      hack (cons a b) ; cause copy only works on single cons
+      (x . y) (copy hack)
+      (a . b) x
+      (a' . b') y)
+      
+      (do b' (cons a (range (+ a' 1) b))))
+    (do a b ())))
 
-; 3 + 2 * 1 = 5 (39)
+
 (defn count (xs)
   (if xs
-    (+ 1 (count (cdr xs)))
-    0))
+    (let ((x . rx) xs)
+      (do x (+ 1 (count rx))))
+    (do xs 0)))
 
-; 3 + 2 * 1 = 5 (44)
 (defn zip (xs ys)
   (if xs
     (if ys
       (let (
-        (x . xxs) xs
-        (y . yys) ys)
+        (x . rx) xs
+        (y . ry) ys)
         
-        (cons (cons x y) (zip xxs yys)))
-      ())
-    ()))
+        (cons (cons x y) (zip rx ry)))
+      (do ys xs))
+    (do xs ys)))
 
-; 3 + 2 * 3 = 9 (53)
-(defn with-index (xs)
-  (zip xs (range 0 (count xs))))
 
-; 3 + 2 * 1 = 5 (58)
-(defn copy (xs)
+(defn with-index (xs i)
   (if xs
-    (cons (car xs) (copy (cdr xs)))
-    ()))
+    (let (
+      (x . rx) xs
+      hack (cons i ())
+      (h . h') (copy hack)
+      (a . b) h
+      (a'  . b') h')
 
-; 3 + 2 * 1 = 5 (63)
-(defn dissoc (xs key)
-  (if xs
-    (let ((k . ys) xs (v . zs) ys)
-      (if (= k key)
-        zs
-        (cons k (cons v (dissoc zs key)))))
-    ()))
+      (do b b' (cons (cons x a) (with-index rx (+ a' 1)))))
+    (do i xs)))
 
-; 3 + 2 * 1 = 5 (68)
-(defn assoc (xs key val)
-  (cons key (cons val (dissoc xs key))))
-
-; 3 + 2 * 1 = 5 (73)
+; need get that just returns val
 (defn get (xs key)
   (if xs
-    (let (k (car xs) v (car (cdr xs)))
+    (let (
+      (k . ts) xs
+      (v . rx) ts)
+      
       (if (= k key)
-        v
-        (get (cdr (cdr xs)) key)))
-    ()))
+        (let ((v . val) (copy-scalar v))
+          (do key (cons val (cons k (cons v rx)))))
+        (let ((val . ys) (get rx key))
+          (cons val (cons k (cons v ys))))))
+    (do key (cons () xs))))
 
-; 2 + 5 * (1 + 4) = 27 (100)
+
+;; ; 3 + 2 * 1 = 5 (63)
+;; (defn dissoc (xs key)
+;;   (if xs
+;;     (let ((k . ys) xs (v . zs) ys)
+;;       (if (= k key)
+;;         zs
+;;         (cons k (cons v (dissoc zs key)))))
+;;     ()))
+
+;; ; 3 + 2 * 1 = 5 (68)
+;; (defn assoc (xs key val)
+;;   (cons key (cons val (dissoc xs key))))
+
+;; ; 3 + 2 * 1 = 5 (73)
+;; (defn get (xs key)
+;;   (if xs
+;;     (let (k (car xs) v (car (cdr xs)))
+;;       (if (= k key)
+;;         v
+;;         (get (cdr (cdr xs)) key)))
+;;     ()))
+
+
 (def data '(
   ("name" "Alice" "grade" 3)
   ("name" "Bob" "grade" 1)
@@ -116,23 +140,15 @@
   ("name" "Ellis" "grade" 1)
 ))
 
-;; (def state '("group-by" 1))
+;; ;; (def state '("group-by" 1))
 
-(let (
-  f2 (fn (a b) (<= (get b "grade") (get a "grade")))
-  z (with-index (sort f2 (copy data)))
-  f (fn ((row . i)) '("text" ("y" ~(* 16 (+ i 1))) ~(get row "name")))
-  res (map f z)
+;; (let (
+;;   f (fn (a b) (<= (get b "grade") (get a "grade")))
+;;   z (with-index (sort f (copy data)))
+;;   f (fn ((row . i)) '("text" ("y" ~(* 16 (+ i 1))) ~(get row "name")))
+;;   res (map f z))
 
-  (a . b) f2
-  (a . b) b
-  (a . b) b
+;;   '("g" () ~@res))
 
-  (a . b) f
-  (a . b) b
-  (a . b) b)
 
-  '("g" () ~@res))
-
-;; (get (list "x" 10 "y" 20 "z" 30) "a")
-
+(map (fn (row) (let ((val . rx) (get row "grade")) (do rx val))) data)
