@@ -139,6 +139,12 @@ const read = (s) => {
       return [Symbol.for("unquote"), [exp(), null]]
     }
 
+    if (s[i] === "&") {
+      i++
+
+      return [Symbol.for("ref"), [exp(), null]]
+    }
+
     {
       let r = ""
       while (
@@ -156,6 +162,59 @@ const read = (s) => {
   }
 
   return exp()
+}
+
+const pretty = (x) => {
+  const dispatch = {
+    Null: () => `()`,
+
+    Array: () => {
+      const r = []
+      while (x) {
+        r.push(pretty(x[0]))
+        x = x[1]
+      }
+
+      return `(${r.join(" ")})`
+    },
+
+    String: () => JSON.stringify(x),
+
+    Symbol: () => Symbol.keyFor(x),
+
+    Number: () => String(x),
+  }
+
+  return dispatch[x?.constructor?.name ?? "Null"]()
+}
+
+const format = (s) => {
+  let indent = 0
+  const result = []
+  for (let line of s.replace(/\r/g, "").split(/\n+/)) {
+    line = line.trim()
+    if (!line) {
+      continue
+    }
+
+    if (line.startsWith(";;")) {
+      result.push("")
+    }
+
+    result.push(
+      "  ".repeat(
+        indent - (line === ")" || line === "else" || line === "end" ? 1 : 0)
+      ) + line
+    )
+    indent =
+      indent +
+      (line.match(/\(/g)?.length ?? 0) -
+      (line.match(/\)/g)?.length ?? 0) +
+      line.startsWith("if") -
+      line.endsWith("end")
+  }
+
+  return result.join("\n")
 }
 
 // Linked list to array
@@ -194,6 +253,9 @@ const listFreeVars = (expr, bound) =>
             (r, x) => r.union(listFreeVars(x, bound)),
             new Set()
           ),
+
+        [Symbol.for("if")]: () =>
+          args.reduce((r, x) => r.union(listFreeVars(x, bound)), new Set()),
 
         [Symbol.for("fn")]: () =>
           listFreeVars(
@@ -246,6 +308,8 @@ const listFreeVars = (expr, bound) =>
             Null: () => new Set(),
 
             Symbol: () => new Set(),
+
+            Number: () => new Set(),
           }
 
           const t = arg?.constructor?.name ?? "Null"
@@ -323,20 +387,21 @@ ${names.reduce(
 local.set $env
 `
 
-const symbolIndices = new Map([
-  [Symbol.for("+"), 1],
-  [Symbol.for("cons"), 2],
-  [Symbol.for("list"), 3],
-  [Symbol.for("<"), 4],
-  [Symbol.for("car"), 5],
-  [Symbol.for("cdr"), 6],
-  [Symbol.for("*"), 7],
-  [Symbol.for("<="), 8],
-  [Symbol.for("="), 9],
-  [Symbol.for("do"), 10],
-  [Symbol.for("copy"), 11],
-  [Symbol.for("copy-scalar"), 12],
+const coreSymbols = new Set([
+  Symbol.for("+"),
+  Symbol.for("cons"),
+  Symbol.for("list"),
+  Symbol.for("<"),
+  Symbol.for("*"),
+  Symbol.for("<="),
+  Symbol.for("="),
+  Symbol.for("do"),
+  Symbol.for("copy-cons"),
+  Symbol.for("copy-scalar"),
+  Symbol.for("ref"),
 ])
+
+const symbolIndices = new Map([...coreSymbols].map((sym, i) => [sym, i + 1]))
 const symbolIndex = (s) => {
   if (!symbolIndices.has(s)) {
     symbolIndices.set(s, symbolIndices.size + 1)
@@ -390,19 +455,9 @@ const compile = (expr, nonLinear) =>
         `,
 
         [Symbol.for("<")]: () => cl`
-        ${compile(args[0], nonLinear)}
-        ${compile(args[1], nonLinear)}
+        ${compile(args[0])}
+        ${compile(args[1])}
         i32.lt_s
-        `,
-
-        [Symbol.for("car")]: () => cl`
-        ${compile(args[0])}
-        call $car
-        `,
-
-        [Symbol.for("cdr")]: () => cl`
-        ${compile(args[0])}
-        call $cdr
         `,
 
         [Symbol.for("*")]: () => cl`
@@ -418,8 +473,8 @@ const compile = (expr, nonLinear) =>
         `,
 
         [Symbol.for("=")]: () => cl`
-        ${compile(args[0], nonLinear)}
-        ${compile(args[1], nonLinear)}
+        ${compile(args[0])}
+        ${compile(args[1])}
         i32.eq
         `,
 
@@ -434,9 +489,9 @@ const compile = (expr, nonLinear) =>
         )}
         `,
 
-        [Symbol.for("copy")]: () => cl`
+        [Symbol.for("copy-cons")]: () => cl`
         ${compile(args[0])}
-        call $copy
+        call $copy-cons
         call $cons
         `,
 
@@ -542,7 +597,7 @@ const compile = (expr, nonLinear) =>
           const [p, c, a] = args
 
           return cl`
-          ${compile(p, true)}
+          ${compile(p)}
           i32.eqz
           if (result i32)
             ${compile(a)}
@@ -558,6 +613,7 @@ const compile = (expr, nonLinear) =>
           const name = Math.random().toString(36).slice(2)
 
           const func = cg`
+          ;; ${pretty(expr)}
           (func $${name} (param $args i32) (param $env i32) (result i32)
             (local $prevEnv i32)
 
@@ -597,26 +653,7 @@ const compile = (expr, nonLinear) =>
           (elem (i32.const ${fnIndex}) $${name})
           `
 
-          const freeVars = [
-            ...listFreeVars(
-              expr,
-              new Set([
-                Symbol.for("if"),
-                Symbol.for("+"),
-                Symbol.for("cons"),
-                Symbol.for("list"),
-                Symbol.for("<"),
-                Symbol.for("car"),
-                Symbol.for("cdr"),
-                Symbol.for("*"),
-                Symbol.for("<="),
-                Symbol.for("="),
-                Symbol.for("do"),
-                Symbol.for("copy"),
-                Symbol.for("copy-scalar"),
-              ])
-            ),
-          ]
+          const freeVars = [...listFreeVars(expr, coreSymbols)]
 
           return cl`
           ${func}
@@ -678,6 +715,10 @@ const compile = (expr, nonLinear) =>
 
           return dispatch[arg?.constructor?.name ?? "Null"]()
         },
+
+        [Symbol.for("ref")]: () => {
+          return compile(args[0], true) // args[0] better be symbol
+        },
       }
 
       return (
@@ -727,7 +768,7 @@ const compile = (expr, nonLinear) =>
   const wat = native
     .replace(/;; cl<-/, compiled.local)
     .replace(/;; cg<-/, compiled.global)
-  // console.log(wat)
+  // console.log(format(wat))
 
   // Load resulting wasm module.
   const wabt = await WabtModule()
@@ -765,10 +806,6 @@ const compile = (expr, nonLinear) =>
   const { instance } = await WebAssembly.instantiate(bytes.buffer, {
     js: {
       heap,
-
-      oem: () => {
-        throw new Error("Llisp out of memory")
-      },
 
       unknownSymbol: (index) => {
         throw new Error(
@@ -837,6 +874,9 @@ const compile = (expr, nonLinear) =>
 
       err: (errno) => {
         switch (errno) {
+          case 0:
+            throw new Error(`Llisp out of memory`)
+
           case 1:
             throw new Error(`Cannot decon nil`)
 
@@ -877,7 +917,7 @@ const compile = (expr, nonLinear) =>
   console.log("result:", result)
 
   // Print result as list.
-  if (true) {
+  if (false) {
     console.log("lst:", prn(result))
   } else if (true) {
     let ptr = result

@@ -1,6 +1,5 @@
 (module
   (memory (import "js" "heap") 0)
-  (import "js" "oem" (func $oem))
   (import "js" "unknownSymbol" (func $unknownSymbol (param $key i32)))
   (import "js" "log" (func $log (param $s i32) (result i32)))
   (import "js" "monitor" (func $monitor))
@@ -9,16 +8,17 @@
   (global $tmp (mut i32) (i32.const 0))
   (global $tmp2 (mut i32) (i32.const 0))
 
+  ;; table for dynamic dispatch
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))
   (table 32 funcref)
 
-  ;; ( p -- car(p) )
+  ;; ( p -- car(p) ) non-linear
   (func $car (param i32) (result i32)
     local.get 0
     i32.load
   )
 
-  ;; ( p -- cdr(p) )
+  ;; ( p -- cdr(p) ) non-linear
   (func $cdr (param i32) (result i32)
     local.get 0
     i32.const 4
@@ -32,35 +32,43 @@
     i32.load
     i32.eqz
     if
-      call $oem
+      i32.const 0
+      call $err
     end
 
-    i32.const 0 ;; return new cons
+    ;; return free (new cons)
+    i32.const 0
     i32.load
 
-    i32.const 0 ;; push ref to free
-    i32.const 0 ;; push next free
+  
+    ;; push ref to free
+    i32.const 0 
+
+    ;; push next free
+    i32.const 0 
     i32.load
     i32.const 4
     i32.add
     i32.load
 
-    i32.const 0 ;; store car
+    ;; store car
+    i32.const 0
     i32.load
     local.get $car
     i32.store
 
-    i32.const 0 ;; store cdr
+    ;; store cdr
+    i32.const 0
     i32.load
     i32.const 4
     i32.add
     local.get $cdr
     i32.store
 
-    i32.store ;; store next free
+    ;; store next free
+    i32.store
     call $monitor
   )
-  (elem (i32.const 1) $cons)
 
   ;; ( p -- car(p) cdr(p) ) frees memory
   (func $decon (param $c i32) (result i32 i32)
@@ -71,23 +79,27 @@
       call $err
     end
 
-    local.get $c ;; return car and cdr
+    ;; return car and cdr
+    local.get $c
     call $car
     local.get $c
     call $cdr
 
-    local.get $c ;; point to free
+    ;; point to free
+    local.get $c
     i32.const 4
     i32.add
     i32.const 0
     i32.load
     i32.store
 
-    local.get $c ;; clear car of free
+    ;; clear car of free
+    local.get $c
     i32.const 98
     i32.store
 
-    i32.const 0 ;; store new free
+    ;; store new free
+    i32.const 0
     local.get $c
     i32.store
     call $monitor
@@ -98,25 +110,28 @@
     local.get $c ;; return cdr
     call $cdr
     
-    local.get $c ;; point to free
+    ;; point to free
+    local.get $c
     i32.const 4
     i32.add
     i32.const 0
     i32.load
     i32.store
 
-    local.get $c ;; clear car of free
+    ;; clear car of free
+    local.get $c
     i32.const 98
     i32.store
 
-    i32.const 0 ;; store new free
+    ;; store new free
+    i32.const 0
     local.get $c
     i32.store
     call $monitor
   )
 
   ;; ( c -- c c )
-  (func $copy (param $c i32) (result i32 i32)
+  (func $copy-cons (param $c i32) (result i32 i32)
     local.get $c
     call $cdr
     local.get $c
@@ -125,7 +140,7 @@
     local.get $c
   )
 
-  ;; ( key map -- map[key] )
+  ;; ( key map -- map[key] ) non-linear
   (func $get (param $key i32) (param $map i32) (result i32)
     local.get $map
     i32.eqz
@@ -164,7 +179,8 @@
       call $unknownSymbol
     end
 
-    local.get $map ;; get key and val
+    ;; get key and val
+    local.get $map
     call $decon
     local.tee $map
     i32.eqz
@@ -201,14 +217,14 @@
    drop
    i32.add
   )
-  (elem (i32.const 0) $+)
 
   ;; cg<-
 
   (func (export "main") (result i32)
     (local $env i32)
 
-    i32.const 0 ;; new env
+    ;; new env
+    i32.const 0
     local.set $env
 
     ;; cl<-

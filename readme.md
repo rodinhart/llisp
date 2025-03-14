@@ -1,8 +1,11 @@
+- & definitely violates if not value
 - conservation of ref
   - conform: cons
-  - violate: car, cdr, $get, (look for more)
+  - violate: $get, (look for more)
 - properly bind free vars like + and cons
 - ability to destroy closures
+  - current destroy of closure assumes no free vars
+  - note: captures vars only captures ref in env, value is actually shared!
 - wat formatter!
 
 ## memory usage
