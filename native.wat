@@ -218,6 +218,47 @@
    i32.add
   )
 
+  ;; ( a b c ... -- (a b c ...))
+  (func $list (param $args i32) (param $env i32) (result i32)
+    local.get $args
+  )
+
+   ;; ( a b -- a<b )
+  (func $< (param $args i32) (param $env i32) (result i32)
+   local.get $args
+   call $decon
+   call $decon
+   drop
+   i32.lt_s
+  )
+
+  ;; ( a b -- a*b )
+  (func $* (param $args i32) (param $env i32) (result i32)
+   local.get $args
+   call $decon
+   call $decon
+   drop
+   i32.mul
+  )
+
+  ;; ( a b -- a<=b )
+  (func $<= (param $args i32) (param $env i32) (result i32)
+   local.get $args
+   call $decon
+   call $decon
+   drop
+   i32.le_s
+  )
+
+  ;; ( a b -- a=b )
+  (func $= (param $args i32) (param $env i32) (result i32)
+   local.get $args
+   call $decon
+   call $decon
+   drop
+   i32.eq
+  )
+
   ;; cg<-
 
   (func (export "main") (result i32)

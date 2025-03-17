@@ -130,4 +130,4 @@
   
   (do data '("g" () ~@cells)))
 
-;; (map (fn ((row . get)) (let ((x . row) (get row "grade")) (do row get x))) (zip data2 (list &get &get &get &get &get)))
+(list (= 2 3) (= 3 3) (= 4 3))

@@ -388,13 +388,7 @@ local.set $env
 `
 
 const coreSymbols = new Set([
-  Symbol.for("+"),
   Symbol.for("cons"),
-  Symbol.for("list"),
-  Symbol.for("<"),
-  Symbol.for("*"),
-  Symbol.for("<="),
-  Symbol.for("="),
   Symbol.for("do"),
   Symbol.for("copy-cons"),
   Symbol.for("copy-scalar"),
@@ -422,7 +416,7 @@ const stringIndex = (s) => {
 const invert = (m) => new Map([...m].map(([k, v]) => [v, k]))
 
 // Main compiler.
-let fnCnt = 2
+let fnCnt = 1
 const compile = (expr, nonLinear) =>
   ({
     Number: () => cl`i32.const ${expr}\n`,
@@ -430,52 +424,10 @@ const compile = (expr, nonLinear) =>
       const [op, ...args] = listToArray(expr)
 
       const dispatch = {
-        [Symbol.for("+")]: () => cl`
-        ${compile(args[0])}
-        ${compile(args[1])}
-        i32.add
-        `,
-
         [Symbol.for("cons")]: () => cl`
         ${compile(args[1])}
         ${compile(args[0])}
         call $cons
-        `,
-
-        [Symbol.for("list")]: () => cl`
-        i32.const 0
-        ${[...args].reverse().reduce(
-          (r, arg) => cl`
-          ${r}
-          ${compile(arg)}
-          call $cons
-          `,
-          cl``
-        )}
-        `,
-
-        [Symbol.for("<")]: () => cl`
-        ${compile(args[0])}
-        ${compile(args[1])}
-        i32.lt_s
-        `,
-
-        [Symbol.for("*")]: () => cl`
-        ${compile(args[0])}
-        ${compile(args[1])}
-        i32.mul
-        `,
-
-        [Symbol.for("<=")]: () => cl`
-        ${compile(args[0])}
-        ${compile(args[1])}
-        i32.le_s
-        `,
-
-        [Symbol.for("=")]: () => cl`
-        ${compile(args[0])}
-        ${compile(args[1])}
-        i32.eq
         `,
 
         [Symbol.for("do")]: () => cl`
@@ -759,11 +711,34 @@ const compile = (expr, nonLinear) =>
     ${text}
     )`)
 
+  // expose core functions
+  const coreFns = ["+", "list", "<", "*", "<=", "="]
+  const core = cl`
+  local.get $env
+  ${coreFns.reduce((r, op) => {
+    const ix = fnCnt++
+
+    return cl`
+    ${r}
+    ${cg`
+    (elem (i32.const ${ix}) $${op})
+    `}
+    i32.const 0
+    i32.const ${ix}
+    call $cons
+    call $cons
+    i32.const ${symbolIndex(Symbol.for(op))} ;; '${op}'
+    call $cons
+    `
+  }, cl``)}
+  local.set $env
+  `
+
   // Compile lisp.
   const compiled = listToArray(source).reduce(
     (r, expr, i, arr) =>
       cl`${r}${compile(expr)}${i + 1 < arr.length ? "drop\n\n" : ""}`,
-    cl``
+    core
   )
 
   // Resolve wat template.
@@ -920,7 +895,7 @@ const compile = (expr, nonLinear) =>
   console.log("result:", result)
 
   // Print result as list.
-  if (false) {
+  if (true) {
     console.log("lst:", prn(result))
   } else if (true) {
     let ptr = result
