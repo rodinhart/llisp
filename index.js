@@ -339,7 +339,6 @@ const createBindings = (names, args) =>
 ${names.reduce(
   (r, name, i) => cl`
   ${r}
-    ;; get value
     ${args[i]}
     global.set $tmp
     local.get $env
@@ -347,12 +346,13 @@ ${names.reduce(
   ${
     !Array.isArray(name)
       ? cl`
+    ;; bind value to symbol
     call $cons ;; add value
     i32.const ${symbolIndex(name)} ;; '${Symbol.keyFor(name)}'
     call $cons ;; add key
   `
       : cl`
-    ;; decon
+    ;; decon and bind to two symbols
     call $decon
     global.set $tmp ;; stash cdr
     call $cons ;; add car
@@ -624,12 +624,15 @@ const compile = (expr, nonLinear) =>
               listToArray(args[0]),
               listToArray(args[0]).map(
                 () => cl`
+              ;; assert argument
               local.get $args
               i32.eqz
               if
                 i32.const 2
                 call $err
               end
+
+              ;; get arg
               local.get $args
               call $decon
               local.set $args
@@ -768,7 +771,7 @@ const compile = (expr, nonLinear) =>
   const wat = native
     .replace(/;; cl<-/, compiled.local)
     .replace(/;; cg<-/, compiled.global)
-  // console.log(format(wat))
+  console.log(format(wat))
 
   // Load resulting wasm module.
   const wabt = await WabtModule()
