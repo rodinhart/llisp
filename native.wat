@@ -12,62 +12,147 @@
   (type $fntype (func (param $args i32) (param $env i32) (result i32)))
   (table 32 funcref)
 
-  ;; ( p -- car(p) ) non-linear
-  (func $car (param i32) (result i32)
-    local.get 0
-    i32.load
-  )
+  ;; ( -- ptr )
+  (func $alloc (result i32)
+    (local $ptr i32)
 
-  ;; ( p -- cdr(p) ) non-linear
-  (func $cdr (param i32) (result i32)
-    local.get 0
-    i32.const 4
-    i32.add
-    i32.load
-  )
+    i32.const 0 ;; push ref to free
 
-  ;; ( cdr car -- (car.cdr) ) allocates memory
-  (func $cons (param $cdr i32) (param $car i32) (result i32)
-    i32.const 0
+    i32.const 0 ;; load free
     i32.load
+    local.tee $ptr
     i32.eqz
     if
-      i32.const 0
+      i32.const 0 ;; out of memory
       call $err
     end
 
-    ;; return free (new cons)
-    i32.const 0
-    i32.load
-
-  
-    ;; push ref to free
-    i32.const 0 
-
-    ;; push next free
-    i32.const 0 
-    i32.load
-    i32.const 4
+    local.get $ptr
+    i32.const 8 ;; load next free
     i32.add
     i32.load
+    i32.store
 
-    ;; store car
-    i32.const 0
-    i32.load
+    local.get $ptr ;; return allocated
+    call $monitor
+  )
+
+  ;; ( cdr car -- cons(car, cdr) )
+  (func $cons (param $cdr i32) (param $car i32) (result i32)
+    (local $ptr i32)
+
+    call $alloc
+    local.tee $ptr
+    i32.const $CONS
+    i32.store
+
+    local.get $ptr
+    i32.const 4
+    i32.add
     local.get $car
     i32.store
 
-    ;; store cdr
-    i32.const 0
-    i32.load
-    i32.const 4
+    local.get $ptr
+    i32.const 8
     i32.add
     local.get $cdr
     i32.store
 
-    ;; store next free
+    local.get $ptr
+  )
+
+  ;; ( n -- number(n) )
+  (func $number (param $n i32) (result i32)
+    (local $ptr i32)
+
+    call $alloc
+    local.tee $ptr
+    i32.const $NUMBER
     i32.store
-    call $monitor
+
+    local.get $ptr
+    i32.const 4
+    i32.add
+    local.get $n
+    i32.store
+
+    local.get $ptr
+  )
+
+  ;; ( s -- symbol(s) )
+  (func $symbol (param $s i32) (result i32)
+    (local $ptr i32)
+
+    call $alloc
+    local.tee $ptr
+    i32.const $SYMBOL
+    i32.store
+
+    local.get $ptr
+    i32.const 4
+    i32.add
+    local.get $s
+    i32.store
+
+    local.get $ptr
+  )
+
+  ;; ( s -- string(s) )
+  (func $string (param $s i32) (result i32)
+    (local $ptr i32)
+
+    call $alloc
+    local.tee $ptr
+    i32.const $STRING
+    i32.store
+
+    local.get $ptr
+    i32.const 4
+    i32.add
+    local.get $s
+    i32.store
+
+    local.get $ptr
+  )
+
+  ;; ( ix env -- function(ix, env) )
+  (func $function (param $env i32) (param $ix i32) (result i32)
+    (local $ptr i32)
+
+    call $alloc
+    local.tee $ptr
+    i32.const $FUNCTION ;; type function
+    i32.store
+
+    local.get $ptr
+    i32.const 4
+    i32.add
+    local.get $ix
+    i32.store
+
+    local.get $ptr
+    i32.const 8
+    i32.add
+    local.get $env
+    i32.store
+
+    local.get $ptr
+  )
+
+  ;; ( p -- car(p) ) non-linear
+  (func $car (param $p i32) (result i32)
+    local.get $p
+    i32.const 4
+    i32.add
+    i32.load
+  )
+
+  ;; ( p -- cdr(p) ) non-linear
+  (func $cdr (param $p i32) (result i32)
+    local.get $p
+    i32.const 8
+    i32.add
+    i32.load
   )
 
   ;; ( p -- car(p) cdr(p) ) frees memory
@@ -75,7 +160,7 @@
     local.get $c
     i32.eqz
     if
-      i32.const 1
+      i32.const 1 ;; null pointer
       call $err
     end
 
@@ -87,7 +172,7 @@
 
     ;; point to free
     local.get $c
-    i32.const 4
+    i32.const 8
     i32.add
     i32.const 0
     i32.load
@@ -112,15 +197,10 @@
     
     ;; point to free
     local.get $c
-    i32.const 4
+    i32.const 8
     i32.add
     i32.const 0
     i32.load
-    i32.store
-
-    ;; clear car of free
-    local.get $c
-    i32.const 98
     i32.store
 
     ;; store new free
@@ -130,18 +210,10 @@
     call $monitor
   )
 
-  ;; ( c -- c c )
-  (func $copy-cons (param $c i32) (result i32 i32)
-    local.get $c
-    call $cdr
-    local.get $c
-    call $car
-    call $cons
-    local.get $c
-  )
-
   ;; ( key map -- map[key] ) non-linear
   (func $get (param $key i32) (param $map i32) (result i32)
+    (local $val i32)
+
     local.get $map
     i32.eqz
     if (result i32)
@@ -151,12 +223,40 @@
     else
       local.get $map
       call $car
+      i32.const 4
+      i32.add
+      i32.load
       local.get $key
       i32.eq
       if (result i32)
         local.get $map
         call $cdr
         call $car
+
+        ;; sort out ownership of val
+        local.tee $val
+        i32.load
+        i32.const $NUMBER
+        i32.eq
+        if (result i32)
+          ;; copy number
+          local.get $val
+          i32.const 4
+          i32.add
+          i32.load
+          call $number
+        else
+          local.get $val
+          i32.load
+          i32.const $FUNCTION
+          i32.eq
+          if (result i32)
+            ;; ref function
+            local.get $val
+          else
+            local.get $val
+          end
+        end
       else
         local.get $key
         local.get $map
@@ -167,55 +267,71 @@
     end
   )
 
-  ;; ( key map -- map[key] map ) throws error if not found
-  (func $remove (param $key i32) (param $map i32) (result i32 i32)
-    (local $k i32)
-    (local $v i32)
-
-    local.get $map
-    i32.eqz
-    if
-      local.get $key
-      call $unknownSymbol
-    end
-
-    ;; get key and val
-    local.get $map
-    call $decon
-    local.tee $map
-    i32.eqz
-    if
-      i32.const 3
-      call $err
-    end
-    local.get $map
-    call $decon
-    local.set $map
-    local.set $v
-    local.tee $k
-    local.get $key
-    i32.eq
-    if (result i32 i32)
-      local.get $v ;; return val and new map
-      local.get $map
-    else
-      local.get $key ;; recurse
-      local.get $map
-      call $remove
-      local.get $v ;; add back key and val
-      call $cons
-      local.get $k
-      call $cons
-    end
-  )
-
   ;; ( a b -- a+b )
   (func $+ (param $args i32) (param $env i32) (result i32)
-   local.get $args
-   call $decon
-   call $decon
-   drop
-   i32.add
+    (local $a i32)
+    (local $b i32)
+
+    local.get $args
+    call $decon
+    call $decon
+    drop
+
+    local.tee $args
+    i32.const 4
+    i32.add
+    i32.load
+    local.set $a
+    local.get $args
+    call $destroy
+    drop
+
+    local.tee $args
+    i32.const 4
+    i32.add
+    i32.load
+    local.set $b
+    local.get $args
+    call $destroy
+    drop
+
+    local.get $a
+    local.get $b
+    i32.add
+    call $number
+  )
+
+  ;; ( a b -- a=b )
+  (func $= (param $args i32) (param $env i32) (result i32)
+    (local $a i32)
+    (local $b i32)
+
+    local.get $args
+    call $decon
+    call $decon
+    drop
+
+    local.tee $args
+    i32.const 4
+    i32.add
+    i32.load
+    local.set $a
+    local.get $args
+    call $destroy
+    drop
+
+    local.tee $args
+    i32.const 4
+    i32.add
+    i32.load
+    local.set $b
+    local.get $args
+    call $destroy
+    drop
+
+    local.get $a
+    local.get $b
+    i32.eq
   )
 
   ;; ( a b c ... -- (a b c ...))
@@ -223,50 +339,10 @@
     local.get $args
   )
 
-   ;; ( a b -- a<b )
-  (func $< (param $args i32) (param $env i32) (result i32)
-   local.get $args
-   call $decon
-   call $decon
-   drop
-   i32.lt_s
-  )
-
-  ;; ( a b -- a*b )
-  (func $* (param $args i32) (param $env i32) (result i32)
-   local.get $args
-   call $decon
-   call $decon
-   drop
-   i32.mul
-  )
-
-  ;; ( a b -- a<=b )
-  (func $<= (param $args i32) (param $env i32) (result i32)
-   local.get $args
-   call $decon
-   call $decon
-   drop
-   i32.le_s
-  )
-
-  ;; ( a b -- a=b )
-  (func $= (param $args i32) (param $env i32) (result i32)
-   local.get $args
-   call $decon
-   call $decon
-   drop
-   i32.eq
-  )
-
   ;; cg<-
 
   (func (export "main") (result i32)
     (local $env i32)
-
-    ;; new env
-    i32.const 0
-    local.set $env
 
     ;; cl<-
 

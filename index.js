@@ -139,12 +139,6 @@ const read = (s) => {
       return [Symbol.for("unquote"), [exp(), null]]
     }
 
-    if (s[i] === "&") {
-      i++
-
-      return [Symbol.for("ref"), [exp(), null]]
-    }
-
     {
       let r = ""
       while (
@@ -349,6 +343,7 @@ ${names.reduce(
     ;; bind value to symbol
     call $cons ;; add value
     i32.const ${symbolIndex(name)} ;; '${Symbol.keyFor(name)}'
+    call $symbol
     call $cons ;; add key
   `
       : cl`
@@ -371,29 +366,7 @@ ${names.reduce(
 )}
 `
 
-// Destroy bindings at the end of fn or let.
-// Note this destroys the binding, but not the bound value.
-const destroyBindings = (names) => cl`
-;; destroy bindings
-local.get $env
-${names.reduce(
-  (r) => cl`
-  ${r}
-  call $destroy
-  call $destroy
-  `,
-  cl``
-)}
-local.set $env
-`
-
-const coreSymbols = new Set([
-  Symbol.for("cons"),
-  Symbol.for("do"),
-  Symbol.for("copy-cons"),
-  Symbol.for("copy-scalar"),
-  Symbol.for("ref"),
-])
+const coreSymbols = new Set([Symbol.for("cons")])
 
 const symbolIndices = new Map([...coreSymbols].map((sym, i) => [sym, i + 1]))
 const symbolIndex = (s) => {
@@ -419,7 +392,10 @@ const invert = (m) => new Map([...m].map(([k, v]) => [v, k]))
 let fnCnt = 1
 const compile = (expr, nonLinear) =>
   ({
-    Number: () => cl`i32.const ${expr}\n`,
+    Number: () => cl`
+    i32.const ${expr}
+    call $number
+    `,
     Array: () => {
       const [op, ...args] = listToArray(expr)
 
@@ -430,47 +406,20 @@ const compile = (expr, nonLinear) =>
         call $cons
         `,
 
-        [Symbol.for("do")]: () => cl`
-        ${args.reduce(
-          (r, arg, i) => cl`
-          ${r}
-          ${compile(arg)}
-          ${i + 1 < args.length ? `drop` : ``}
-          `,
-          cl``
-        )}
-        `,
-
-        [Symbol.for("copy-cons")]: () => cl`
-        ${compile(args[0])}
-        call $copy-cons
-        call $cons
-        `,
-
-        [Symbol.for("copy-scalar")]: () => cl`
-        ${compile(args[0])}
-        global.set $tmp
-        global.get $tmp
-        global.get $tmp
-        call $cons
-        `,
-
         // (f x y)
         _: () => {
           const compiledArgs = [...args]
             .reverse()
-            .reduce(
-              (r, arg) => cl`${r}${compile(arg, nonLinear)}call $cons\n`,
-              cl``
-            )
+            .reduce((r, arg) => cl`${r}${compile(arg)}call $cons\n`, cl``)
 
           return cl`
-          i32.const 0 ;; build args list
+          ;; build args list
+          i32.const 0
           ${compiledArgs}
           ;; evaluate operator
-          ${compile(op, true)}
+          ${compile(op)}
           global.set $tmp
-          global.get $tmp ;; get env
+          global.get $tmp ;; get env from closure
           call $cdr
           global.get $tmp ;; get function index
           call $car
@@ -485,9 +434,10 @@ const compile = (expr, nonLinear) =>
           ${compile(args[1])}
           call $cons
           i32.const ${symbolIndex(args[0])} ;; '${Symbol.keyFor(args[0])}'
+          call $symbol
           call $cons
           local.set $env
-          i32.const ${symbolIndex(args[0])} ;; '${Symbol.keyFor(args[0])}'
+          i32.const 0
           `
         },
 
@@ -496,34 +446,51 @@ const compile = (expr, nonLinear) =>
           const [name, params, body] = args
 
           return cl`
-          ;; empty def
-          ${compile(read(`(def ${Symbol.keyFor(name)} (cons 0 0))`))}
-          local.get $env ;; get ref
-          call $get
-          global.set $tmp2
+          ;; dummy def
+          ${compile(read(`(def ${Symbol.keyFor(name)} (fn () ()))`))}
+          drop ;; forget result
+
+          ;; get ref to dummy function
+          local.get $env
+          call $cdr
+          call $car
+          global.set $tmp
+
+          ;; get ref to dummy env
+          global.get $tmp ;; ref to env
+          i32.const 8
+          i32.add
+          ;; get ref to dummy ix
+          global.get $tmp
+          i32.const 4
+          i32.add
+
 
           ;; full def
           ${compile([
             Symbol.for("def"),
             [args[0], [[Symbol.for("fn"), [params, [body, null]]], null]],
           ])}
+          drop
           
-          ;; recurse def
-          global.get $tmp2 ;; ref to cdr
-          i32.const 4
-          i32.add
-          global.get $tmp2 ;; ref to car
-
+          ;; remove and destroy symbol
           local.get $env
-          call $destroy ;; destroy key
-          call $decon ;; val
+          call $decon
           local.set $env
+          call $destroy
+          drop
 
+          ;; remove val
+          local.get $env
+          call $decon
+          local.set $env
           call $decon ;; ix and captured env
-          global.set $tmp ;; store ix
-          i32.store
+          global.set $tmp ;; park captured env
+          i32.store ;; store ix
           global.get $tmp ;; store captured env
           i32.store
+
+          i32.const 0 ;; return nil
           `
         },
 
@@ -595,15 +562,24 @@ const compile = (expr, nonLinear) =>
             ;; function body
             ${compile(args[1])}
 
-            ;; flag
-            local.get $prevEnv
-            local.get $env
-            i32.ne
-            if
-              i32.const 4
-              call $err
-            end
+            ;; destroy unused bindings
+            (loop $loop
+              local.get $env
+              local.get $prevEnv
+              i32.ne
+              if
+                local.get $env
+                call $decon
+                call $decon
+                local.set $env
+                call $destroy
+                drop
+                call $destroy
+                drop
 
+                br $loop
+              end
+            )
           )
           (elem (i32.const ${fnIndex}) $${name})
           `
@@ -620,13 +596,15 @@ const compile = (expr, nonLinear) =>
             ${compile(v, true)}
             call $cons
             i32.const ${symbolIndex(v)} ;; '${Symbol.keyFor(v)}'
+            call $symbol
             call $cons
             `,
             cl``
           )}
 
-          i32.const ${fnIndex} ;; function index
-          call $cons
+          ;; function index
+          i32.const ${fnIndex}
+          call $function
           `
         },
 
@@ -637,6 +615,7 @@ const compile = (expr, nonLinear) =>
 
             Symbol: () => cl`
             i32.const ${symbolIndex(arg)} ;; ${Symbol.keyFor(arg)}
+            call $symbol
             `,
 
             Array: () =>
@@ -670,10 +649,6 @@ const compile = (expr, nonLinear) =>
 
           return dispatch[arg?.constructor?.name ?? "Null"]()
         },
-
-        [Symbol.for("ref")]: () => {
-          return compile(args[0], true) // args[0] better be symbol
-        },
       }
 
       return (
@@ -681,19 +656,12 @@ const compile = (expr, nonLinear) =>
       )()
     },
 
-    Symbol: () =>
-      !nonLinear
-        ? cl`
-      i32.const ${symbolIndex(expr)} ;; '${Symbol.keyFor(expr)}'
-      local.get $env
-      call $remove
-      local.set $env
-      `
-        : cl`
-      i32.const ${symbolIndex(expr)} ;; '${Symbol.keyFor(expr)}'
-      local.get $env
-      call $get
-      `,
+    Symbol: () => cl`
+    ;; resolve '${Symbol.keyFor(expr)}'
+    i32.const ${symbolIndex(expr)}
+    local.get $env
+    call $get
+    `,
 
     Null: () => cl`
       i32.const 0
@@ -701,6 +669,7 @@ const compile = (expr, nonLinear) =>
 
     String: () => cl`
       i32.const ${stringIndex(expr)} ;; ${expr}
+      call $string
       `,
   }[expr?.constructor?.name ?? "Null"](expr))
 
@@ -712,9 +681,9 @@ const compile = (expr, nonLinear) =>
     )`)
 
   // expose core functions
-  const coreFns = ["+", "list", "<", "*", "<=", "="]
+  const coreFns = ["+", "=", "list"]
   const core = cl`
-  local.get $env
+  i32.const 0
   ${coreFns.reduce((r, op) => {
     const ix = fnCnt++
 
@@ -725,9 +694,10 @@ const compile = (expr, nonLinear) =>
     `}
     i32.const 0
     i32.const ${ix}
-    call $cons
+    call $function
     call $cons
     i32.const ${symbolIndex(Symbol.for(op))} ;; '${op}'
+    call $symbol
     call $cons
     `
   }, cl``)}
@@ -742,11 +712,16 @@ const compile = (expr, nonLinear) =>
   )
 
   // Resolve wat template.
-  const native = await fetch("./native.wat").then((res) => res.text())
+  const native = (await fetch("./native.wat").then((res) => res.text()))
+    .replace(/\$CONS/g, "1")
+    .replace(/\$NUMBER/g, "2")
+    .replace(/\$SYMBOL/g, "3")
+    .replace(/\$STRING/g, "4")
+    .replace(/\$FUNCTION/g, "5")
   const wat = native
     .replace(/;; cl<-/, compiled.local)
     .replace(/;; cg<-/, compiled.global)
-  console.log(format(wat))
+  // console.log(format(wat))
 
   // Load resulting wasm module.
   const wabt = await WabtModule()
@@ -760,10 +735,10 @@ const compile = (expr, nonLinear) =>
   const heapSize = 320
   const mem = new Uint32Array(heap.buffer)
   mem[0] = 4 // free pointer
-  const len = 1 + 2 * heapSize
-  for (let i = 2; i < len; i += 2) {
-    mem[i - 1] = 99
-    mem[i] = i + 1 < len ? 4 * (i + 1) : 0
+  const len = 1 + 4 * heapSize
+  for (let i = 2; i < len; i += 4) {
+    // mem[i - 1] = 99
+    mem[i + 1] = i + 3 < len ? 4 * (i + 3) : 0
   }
 
   const count = (ptr) => {
@@ -771,7 +746,7 @@ const compile = (expr, nonLinear) =>
     let cur = ptr
     while (cur && cnt < 10000) {
       cnt++
-      cur = mem[cur / 4 + 1]
+      cur = mem[cur / 4 + 2]
     }
 
     return cnt
@@ -861,9 +836,6 @@ const compile = (expr, nonLinear) =>
           case 2:
             throw new Error(`Expected more args`)
 
-          case 3:
-            throw new Error(`Cannot decon val in $remove`)
-
           case 4:
             throw new Error(`Unused bindings in function body`)
         }
@@ -876,95 +848,73 @@ const compile = (expr, nonLinear) =>
   })
   const { destroy, main } = instance.exports
 
-  const prn = (result, nonLinear) => {
-    const lst = []
-    while (result !== 0 && lst.length < 100) {
-      lst.push(mem[result / 4])
-      if (nonLinear) {
-        result = mem[result / 4 + 1]
-      } else {
-        result = destroy(result)
+  const prn = (ptr) => {
+    if (ptr === 0) {
+      return "()"
+    }
+
+    switch (mem[ptr / 4]) {
+      // list
+      case 1: {
+        const r = []
+        while (ptr !== 0 && r.length < 100) {
+          r.push(prn(mem[ptr / 4 + 1]))
+          const t = mem[ptr / 4 + 2]
+          destroy(ptr)
+          ptr = t
+        }
+
+        return `(${r.join(" ")})`
+      }
+
+      // number
+      case 2: {
+        const n = mem[ptr / 4 + 1]
+        destroy(ptr)
+
+        return String(n)
+      }
+
+      // symbol
+      case 3: {
+        const s = mem[ptr / 4 + 1]
+        destroy(ptr)
+
+        return Symbol.keyFor(invert(symbolIndices).get(s))
+      }
+
+      // string
+      case 4: {
+        const s = mem[ptr / 4 + 1]
+        destroy(ptr)
+
+        return JSON.stringify(invert(stringIndices).get(s))
+      }
+
+      // function
+      case 5: {
+        let env = mem[ptr / 4 + 2]
+        destroy(ptr)
+        while (env) {
+          destroy(mem[env / 4 + 1]) // destroy symbol
+          let t = mem[env / 4 + 2]
+          destroy(env)
+          env = t
+          t = mem[env / 4 + 2]
+          destroy(env)
+          env = t
+        }
+
+        return `[fn]`
       }
     }
 
-    return `(${lst.join(" ")})`
+    throw new Error(`Unknown type ${mem[ptr / 4]}`)
   }
 
   // Call main function.
   let result = main()
-  console.log("result:", result)
-
-  // Print result as list.
-  if (true) {
-    console.log("lst:", prn(result))
-  } else if (true) {
-    let ptr = result
-    const _ = () => {
-      const deconString = () => {
-        const r = invert(stringIndices).get(mem[ptr / 4])
-        ptr = destroy(ptr)
-
-        return r
-      }
-
-      const deconInt = () => {
-        const r = mem[ptr / 4]
-        ptr = destroy(ptr)
-
-        return r
-      }
-
-      const deconProps = () => {
-        const tmp = deconInt()
-        const prev = ptr
-        ptr = tmp
-        const props = {}
-        while (ptr) {
-          const key = deconString()
-          props[key] = ["x", "y"].includes(key) ? deconInt() : deconString()
-        }
-
-        ptr = prev
-
-        return props
-      }
-
-      if (ptr === 0) {
-        return null
-      }
-
-      const tag = deconString()
-      switch (tag) {
-        case "text":
-          return [tag, deconProps(), deconString()]
-
-        case "g": {
-          const props = deconProps()
-          const children = []
-          while (ptr) {
-            const tmp = deconInt()
-            const prev = ptr
-            ptr = tmp
-            children.push(_())
-            ptr = prev
-          }
-
-          return ["g", props, ...children]
-        }
-
-        default:
-          throw new Error(`Unknown tag '${tag}'`)
-      }
-    }
-
-    const svg = jsonmlToXml([
-      "svg",
-      { xmlns: "http://www.w3.org/2000/svg", width: 500, height: 300 },
-      _(),
-    ])
-    console.log(svg)
-    document.getElementById("app").innerHTML = svg
-  }
+  console.log("result:", prn(result))
 
   // console.log(mem)
   const cnt = count(mem[0])
