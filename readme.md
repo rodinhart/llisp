@@ -1,4 +1,17 @@
-## axioms
+## todo
+
+- $free to take type into account
+- & definitely violates if not value
+  - need types!
+- conservation of ref
+  - conform: cons
+  - violate: $get, (look for more)
+- ability to destroy closures
+
+  - current destroy of closure assumes no free vars
+  - note: captures vars only captures ref in env, value is actually shared!
+
+  ## axioms
 
 - need boolean type
 - always consume
@@ -15,17 +28,6 @@
 - **owner** (default) by consuming
 - **borrow** done by returning borrowed value using multiple returns
 - **shared** arc?
-
-## todo
-
-- & definitely violates if not value
-  - need types!
-- conservation of ref
-  - conform: cons
-  - violate: $get, (look for more)
-- ability to destroy closures
-  - current destroy of closure assumes no free vars
-  - note: captures vars only captures ref in env, value is actually shared!
 
 ## memory usage
 

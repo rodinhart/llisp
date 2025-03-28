@@ -352,10 +352,12 @@ ${names.reduce(
     global.set $tmp ;; stash cdr
     call $cons ;; add car
     i32.const ${symbolIndex(name[0])} ;; '${Symbol.keyFor(name[0])}'
+    call $symbol
     call $cons ;; add key
     global.get $tmp
     call $cons ;; add cdr
     i32.const ${symbolIndex(name[1])} ;; '${Symbol.keyFor(name[1])}'
+    call $symbol
     call $cons ;; add key
   `
   }
@@ -366,7 +368,7 @@ ${names.reduce(
 )}
 `
 
-const coreSymbols = new Set([Symbol.for("cons")])
+const coreSymbols = new Set([Symbol.for("cons"), Symbol.for("null?")])
 
 const symbolIndices = new Map([...coreSymbols].map((sym, i) => [sym, i + 1]))
 const symbolIndex = (s) => {
@@ -404,6 +406,13 @@ const compile = (expr, nonLinear) =>
         ${compile(args[1])}
         ${compile(args[0])}
         call $cons
+        `,
+
+        [Symbol.for("null?")]: () => cl`
+        ;; resolve '${Symbol.keyFor(args[0])}'
+        i32.const ${symbolIndex(args[0])}
+        local.get $env
+        call $get2
         `,
 
         // (f x y)
@@ -477,8 +486,7 @@ const compile = (expr, nonLinear) =>
           local.get $env
           call $decon
           local.set $env
-          call $destroy
-          drop
+          call $free
 
           ;; remove val
           local.get $env
@@ -573,9 +581,7 @@ const compile = (expr, nonLinear) =>
                 call $decon
                 local.set $env
                 call $destroy
-                drop
                 call $destroy
-                drop
 
                 br $loop
               end
@@ -836,6 +842,9 @@ const compile = (expr, nonLinear) =>
           case 2:
             throw new Error(`Expected more args`)
 
+          case 3:
+            throw new Error(`Cannot free nil`)
+
           case 4:
             throw new Error(`Unused bindings in function body`)
         }
@@ -846,7 +855,7 @@ const compile = (expr, nonLinear) =>
       },
     },
   })
-  const { destroy, main } = instance.exports
+  const { free, main } = instance.exports
 
   const prn = (ptr) => {
     if (ptr === 0) {
@@ -860,7 +869,7 @@ const compile = (expr, nonLinear) =>
         while (ptr !== 0 && r.length < 100) {
           r.push(prn(mem[ptr / 4 + 1]))
           const t = mem[ptr / 4 + 2]
-          destroy(ptr)
+          free(ptr)
           ptr = t
         }
 
@@ -870,7 +879,7 @@ const compile = (expr, nonLinear) =>
       // number
       case 2: {
         const n = mem[ptr / 4 + 1]
-        destroy(ptr)
+        free(ptr)
 
         return String(n)
       }
@@ -878,7 +887,7 @@ const compile = (expr, nonLinear) =>
       // symbol
       case 3: {
         const s = mem[ptr / 4 + 1]
-        destroy(ptr)
+        free(ptr)
 
         return Symbol.keyFor(invert(symbolIndices).get(s))
       }
@@ -886,7 +895,7 @@ const compile = (expr, nonLinear) =>
       // string
       case 4: {
         const s = mem[ptr / 4 + 1]
-        destroy(ptr)
+        free(ptr)
 
         return JSON.stringify(invert(stringIndices).get(s))
       }
@@ -894,14 +903,14 @@ const compile = (expr, nonLinear) =>
       // function
       case 5: {
         let env = mem[ptr / 4 + 2]
-        destroy(ptr)
+        free(ptr)
         while (env) {
-          destroy(mem[env / 4 + 1]) // destroy symbol
+          free(mem[env / 4 + 1]) // destroy symbol
           let t = mem[env / 4 + 2]
-          destroy(env)
+          free(env)
           env = t
           t = mem[env / 4 + 2]
-          destroy(env)
+          free(env)
           env = t
         }
 
@@ -914,6 +923,7 @@ const compile = (expr, nonLinear) =>
 
   // Call main function.
   let result = main()
+  console.log({ result })
   console.log("result:", prn(result))
 
   // console.log(mem)

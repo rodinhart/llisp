@@ -130,9 +130,10 @@
   
 ;;   (do data '("g" () ~@cells)))
 
-(defn sum (n)
-  (if (= n 0)
-    0
-    (+ n (sum (+ n -1)))))
+(defn reverse (xs ys)
+  (if (null? xs)
+    (let ((x . rx) xs)
+      (reverse rx (cons x ys)))
+    ys))
 
-(sum 10)
+(reverse (list 4 3 2 1) (list 5 6 7))
